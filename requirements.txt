@@ -1,5 +1,9 @@
 streamlit
+PyQt6
+pyqtgraph
 websocket-client
+bleak
 pandas
+numpys
 plotly
 pyserial 
