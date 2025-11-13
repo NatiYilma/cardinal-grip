@@ -77,9 +77,9 @@ def main():
 
                 chart_placeholder.line_chart(list(st.session_state["values"]))
 
-            time.sleep(0.05)
+            time.sleep(0.01)
 
-        # 🔁 trigger another pass to keep streaming
+        # trigger another pass to keep streaming
         st.rerun()
 
 

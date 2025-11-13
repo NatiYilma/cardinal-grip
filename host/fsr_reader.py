@@ -4,54 +4,37 @@ import serial
 import time
 from collections import deque
 
-
 class FSRReader:
-    """
-    Reads integer ADC values from the ESP32 over USB serial.
-    Expects one integer per line, as in esp32_fsr_serial.ino.
-    """
-
     def __init__(self, port="/dev/cu.usbserial-0001", baud=115200,
-                 smooth_window=5):
+                 smooth_window=3, timeout=0.01):
         self.port = port
         self.baud = baud
-        self.smooth_window = smooth_window
-        self.ser = serial.Serial(self.port, self.baud, timeout=1)
+        self.timeout = timeout
+        self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
         time.sleep(2)  # let ESP32 reset
-        self._window = deque(maxlen=self.smooth_window)
+        self._window = deque(maxlen=smooth_window)
 
     def read_raw(self):
-        """Return one raw int from serial, or None if no valid line."""
-        line = self.ser.readline().decode(errors="ignore").strip()
+        try:
+            line = self.ser.readline()
+        except serial.SerialException as e:
+            print("Serial error:", e)
+            return None
         if not line:
             return None
-        try:
-            return int(line)
-        except ValueError:
-            return None
+        return line
 
     def read(self):
-        """Return a smoothed value (moving average) or None."""
-        val = self.read_raw()
-        if val is None:
+        raw = self.read_raw()
+        if raw is None:
+            return None
+        try:
+            val = int(raw.decode(errors="ignore").strip())
+        except ValueError:
             return None
         self._window.append(val)
         return int(sum(self._window) / len(self._window))
 
     def close(self):
-        self.ser.close()
-
-
-if __name__ == "__main__":
-    reader = FSRReader()
-    print(f"Reading from {reader.port} at {reader.baud}...")
-    try:
-        while True:
-            v = reader.read()
-            if v is not None:
-                print(v)
-            time.sleep(0.05)
-    except KeyboardInterrupt:
-        print("\nStopped.")
-    finally:
-        reader.close()
+        if self.ser and self.ser.is_open:
+            self.ser.close()
