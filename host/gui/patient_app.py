@@ -1,4 +1,4 @@
-# host/gui/patient_qt.py
+# host/gui/patient_app.py
 
 import os
 import sys
@@ -23,31 +23,30 @@ from PyQt6.QtWidgets import (
 )
 import pyqtgraph as pg
 
-# # Add parent folder ("host") to import path so we can import comms.serial_backend
-# HOST_DIR = os.path.dirname(os.path.dirname(__file__))  # .../cardinal-grip/host
-# if HOST_DIR not in sys.path:
-#     sys.path.append(HOST_DIR)
+# ------------ PATH SETUP ------------
+# This file is .../cardinal-grip/host/gui/patient_app.py
+GUI_DIR = os.path.dirname(__file__)          # .../host/gui
+HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
 
-# Add project root (cardinal-grip/) to sys.path so we can import comms.serial_backend
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-# /.../cardinal-grip/host/gui → /host → /cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from comms.serial_backend import SerialBackend  # noqa: E402
+# ------------------------------------
 
 
 class PatientWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Cardinal Grip – Patient (PyQt)")
+        self.setWindowTitle("Cardinal Grip – Patient")
         self.resize(900, 600)
 
         # Serial + data
         self.backend = None
-        self.values = deque(maxlen=2000)
-        self.times = deque(maxlen=2000)
+        self.values = deque(maxlen=2000)  # force values
+        self.times = deque(maxlen=2000)   # time stamps
         self.start_time = None
 
         # ---------- UI LAYOUT ----------
@@ -55,7 +54,7 @@ class PatientWindow(QWidget):
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
 
-        # Top row: port/baud + connect/disconnect
+        # Top row: serial config + connect/disconnect
         top_row = QHBoxLayout()
 
         top_row.addWidget(QLabel("Serial port:"))
@@ -78,7 +77,7 @@ class PatientWindow(QWidget):
 
         main_layout.addLayout(top_row)
 
-        # Row: target band sliders
+        # Target band sliders (min/max)
         band_row = QHBoxLayout()
 
         self.target_min_slider = QSlider(Qt.Orientation.Horizontal)
@@ -96,7 +95,7 @@ class PatientWindow(QWidget):
 
         main_layout.addLayout(band_row)
 
-        # Status + current value
+        # Status + current value + progress bar
         status_row = QHBoxLayout()
         self.status_label = QLabel("Status: Not connected")
         self.current_label = QLabel("Current force: 0")
@@ -129,12 +128,12 @@ class PatientWindow(QWidget):
 
         main_layout.addLayout(bottom_row)
 
-        # Timer to poll sensor via SerialBackend
+        # Timer to poll latest sensor value from backend
         self.timer = QTimer()
-        self.timer.setInterval(20)  # 20 ms → ~50 Hz
+        self.timer.setInterval(20)  # 20 ms -> ~50 Hz
         self.timer.timeout.connect(self.poll_sensor)
 
-    # ---------- LOGIC ----------
+    # ---------- CONNECTION LOGIC ----------
 
     def handle_connect(self):
         if self.backend is not None:
@@ -150,7 +149,8 @@ class PatientWindow(QWidget):
 
         try:
             self.backend = SerialBackend(port=port, baud=baud, timeout=0.01)
-            self.backend.open()
+            # start background reader thread
+            self.backend.start()
         except Exception as e:
             QMessageBox.critical(self, "Serial error", f"Failed to open {port}:\n{e}")
             self.backend = None
@@ -167,7 +167,7 @@ class PatientWindow(QWidget):
     def handle_disconnect(self):
         self.timer.stop()
         if self.backend is not None:
-            self.backend.close()
+            self.backend.stop()   # stops thread + closes port
             self.backend = None
 
         self.status_label.setText("Status: Disconnected")
@@ -182,11 +182,14 @@ class PatientWindow(QWidget):
         self.current_label.setText("Current force: 0")
         self.current_bar.setValue(0)
 
+    # ---------- DATA / PLOTTING ----------
+
     def poll_sensor(self):
         if self.backend is None:
             return
 
-        val = self.backend.read_value()
+        # Non-blocking: just grab the most recent value
+        val = self.backend.get_latest()
         if val is None:
             return
 
@@ -198,7 +201,7 @@ class PatientWindow(QWidget):
         self.values.append(val)
         self.times.append(t)
 
-        # Update numeric + bar
+        # Update numeric displays
         self.current_label.setText(f"Current force: {val}")
         self.current_bar.setValue(val)
 
@@ -216,7 +219,12 @@ class PatientWindow(QWidget):
         # Update plot
         self.curve.setData(list(self.times), list(self.values))
 
+    # ---------- CSV SAVING ----------
+
     def save_csv(self):
+        """
+        Save the current session's data (time_s, force_adc) to a CSV file.
+        """
         if not self.values or not self.times:
             QMessageBox.information(self, "No data", "No samples to save yet.")
             return
@@ -224,9 +232,8 @@ class PatientWindow(QWidget):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         default_name = f"session_{ts}.csv"
 
-        # project root is one level above HOST_DIR
-        project_root = os.path.dirname(HOST_DIR)
-        data_dir = os.path.join(project_root, "data", "logs")
+        # Default dir: project_root/data/logs
+        data_dir = os.path.join(PROJECT_ROOT, "data", "logs")
         os.makedirs(data_dir, exist_ok=True)
         default_path = os.path.join(data_dir, default_name)
 
@@ -237,7 +244,7 @@ class PatientWindow(QWidget):
             "CSV Files (*.csv)",
         )
         if not path:
-            return
+            return  # user cancelled
 
         try:
             with open(path, "w", newline="") as f:
