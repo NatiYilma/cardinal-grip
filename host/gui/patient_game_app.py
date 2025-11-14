@@ -6,7 +6,7 @@ import json
 import time
 from datetime import datetime
 
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer, Qt, QUrl
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
 )
 from PyQt6.QtGui import QFont
+from PyQt6.QtMultimedia import QSoundEffect
 
 # -------- PATH SETUP (same pattern as other GUIs) --------
 GUI_DIR = os.path.dirname(__file__)          # .../host/gui
@@ -53,13 +54,13 @@ class PatientGameWindow(QWidget):
         self.last_time = None  # for dt calculation in timer
 
         # One hold timer per channel (seconds spent continuously in band)
-        self.hhold_time = [0.0] * NUM_CHANNELS  # typo-safe alias removed below
         self.hold_time = [0.0] * NUM_CHANNELS
         self.in_band_prev = [False] * NUM_CHANNELS
 
         # All-fingers simultaneous hold
         self.combo_hold_time = 0.0    # seconds all fingers are in band
         self.combo_reps = 0           # all-finger reps
+        self.last_all_in_band = False
 
         # Persistent reps per channel, loaded/saved from JSON
         self.reps_per_channel = [0] * NUM_CHANNELS
@@ -70,6 +71,24 @@ class PatientGameWindow(QWidget):
         # Emoji sequence for success feedback
         self.emoji_cycle = ["👍", "👏", "🙌", "👌"]
         self.emoji_index = 0
+
+        # --- Audio setup ---
+        self.sounds = {}
+        self._init_sounds()
+
+        # Fail / success cycles for combo
+        self.combo_fail_sounds = [
+            self.sounds.get("oof"),
+            self.sounds.get("spongebob"),
+            self.sounds.get("bruh"),
+        ]
+        self.combo_success_sounds = [
+            self.sounds.get("rizz"),
+            self.sounds.get("wow"),
+            self.sounds.get("yay"),
+        ]
+        self.combo_fail_index = 0
+        self.combo_success_index = 0
 
         # --- UI ---
         main_layout = QVBoxLayout()
@@ -247,6 +266,40 @@ class PatientGameWindow(QWidget):
         self.timer.setInterval(50)  # 20 Hz
         self.timer.timeout.connect(self.game_tick)
 
+    # ------------- AUDIO HELPERS -------------
+
+    def _init_sounds(self):
+        """Load all .wav files from PROJECT_ROOT/audio into QSoundEffect objects."""
+        audio_dir = os.path.join(PROJECT_ROOT, "audio")
+
+        def make_sound(name: str, filename: str) -> QSoundEffect | None:
+            path = os.path.join(audio_dir, filename)
+            if not os.path.isfile(path):
+                # Don't crash if file is missing; just skip it.
+                return None
+            s = QSoundEffect()
+            s.setSource(QUrl.fromLocalFile(path))
+            s.setVolume(0.9)  # 0.0–1.0
+            return s
+
+        self.sounds["applepay"] = make_sound("applepay", "applepay.wav")
+        self.sounds["bruh"] = make_sound("bruh", "bruh.wav")
+        self.sounds["yay"] = make_sound("yay", "yay.wav")
+        self.sounds["mario"] = make_sound("mario", "mario.wav")
+        self.sounds["oof"] = make_sound("oof", "oof.wav")
+        self.sounds["rizz"] = make_sound("rizz", "rizz.wav")
+        self.sounds["spongebob"] = make_sound("spongebob", "spongebob.wav")
+        self.sounds["wow"] = make_sound("wow", "wow.wav")
+        self.sounds["duolingo"] = make_sound("duolingo", "duolingo.wav")
+
+    def _play_sound(self, sound: QSoundEffect | None):
+        """Safely play a sound if it exists."""
+        if sound is None:
+            return
+        # Restart from beginning each time
+        sound.stop()
+        sound.play()
+
     # ------------- STATS PERSISTENCE (JSON) -------------
 
     def _load_stats(self):
@@ -330,6 +383,7 @@ class PatientGameWindow(QWidget):
         self.in_band_prev = [False] * NUM_CHANNELS
         self.combo_hold_time = 0.0
         self.last_time = time.time()
+        self.last_all_in_band = False
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.emoji_label.setText("")
@@ -356,6 +410,7 @@ class PatientGameWindow(QWidget):
         self.combo_hold_time = 0.0
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
+        self.last_all_in_band = False
 
     # ------------- GAME LOOP -------------
 
@@ -391,10 +446,7 @@ class PatientGameWindow(QWidget):
 
         for i in range(NUM_CHANNELS):
             val = int(vals[i])
-            if val < 0:
-                val = 0
-            if val > 4095:
-                val = 4095
+            val = max(0, min(4095, val))
 
             # Update bar & numeric text
             self.bar_widgets[i].setValue(val)
@@ -412,8 +464,11 @@ class PatientGameWindow(QWidget):
                 color = "green"
 
             in_band_flags[i] = (zone == "in_band")
-
             self._set_bar_color(self.bar_widgets[i], color)
+
+            # --- Single-finger target zone ENTER: play applepay.wav ---
+            if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
+                self._play_sound(self.sounds.get("applepay"))
 
             # ---- Per-channel countdown logic ----
             if self.timer.isActive() and zone == "in_band":
@@ -427,6 +482,9 @@ class PatientGameWindow(QWidget):
                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
                     self.total_reps_label.setText(self._total_reps_text())
                     self.countdown_labels[i].setText("Nice! ✅")
+                    # Play duolingo.wav on successful single-finger rep
+                    self._play_sound(self.sounds.get("duolingo"))
+
                     # Reset hold timer so they must do another full 5 s
                     self.hold_time[i] = 0.0
                     # Save to disk on each successful rep
@@ -436,15 +494,24 @@ class PatientGameWindow(QWidget):
                 self.hold_time[i] = 0.0
                 self.countdown_labels[i].setText("Hold: –")
 
+            # Update previous in-band state
+            self.in_band_prev[i] = (zone == "in_band")
+
         # ---- All-fingers combo logic ----
-        if self.timer.isActive() and all(in_band_flags):
-            # All fingers in band; accumulate combo hold time
+        all_in_band = self.timer.isActive() and all(in_band_flags)
+
+        if all_in_band:
+            # Combo just started: play mario.wav
+            if not self.last_all_in_band:
+                self._play_sound(self.sounds.get("mario"))
+
             self.combo_hold_time += dt
             combo_remaining = max(0.0, HOLD_SECONDS - self.combo_hold_time)
             pct = int(
                 max(0.0, min(1.0, self.combo_hold_time / HOLD_SECONDS)) * 100.0
             )
             self.combo_bar.setValue(pct)
+
             if combo_remaining > 0:
                 self.combo_countdown_label.setText(
                     f"All-fingers hold: {combo_remaining:0.1f} s"
@@ -461,6 +528,14 @@ class PatientGameWindow(QWidget):
                 self.emoji_index = (self.emoji_index + 1) % len(self.emoji_cycle)
                 self.emoji_label.setText(emoji)
 
+                # Play success sound: cycle among rizz/wow/yay
+                if self.combo_success_sounds:
+                    s = self.combo_success_sounds[self.combo_success_index]
+                    self.combo_success_index = (
+                        self.combo_success_index + 1
+                    ) % len(self.combo_success_sounds)
+                    self._play_sound(s)
+
                 # Reset combo timer for next rep
                 self.combo_hold_time = 0.0
                 self.combo_bar.setValue(0)
@@ -469,13 +544,25 @@ class PatientGameWindow(QWidget):
                 # Persist stats
                 self._save_stats()
         else:
-            # Not all in band or not running: reset combo timer
+            # If we *just* broke combo while counting, it's a fail
+            if (
+                self.last_all_in_band
+                and self.timer.isActive()
+                and self.combo_hold_time > 0.0
+            ):
+                # Play fail sound: cycle among oof/spongebob/bruh
+                if self.combo_fail_sounds:
+                    s = self.combo_fail_sounds[self.combo_fail_index]
+                    self.combo_fail_index = (
+                        self.combo_fail_index + 1
+                    ) % len(self.combo_fail_sounds)
+                    self._play_sound(s)
+
             self.combo_hold_time = 0.0
             self.combo_bar.setValue(0)
-            if self.timer.isActive():
-                self.combo_countdown_label.setText("All-fingers hold: –")
-            else:
-                self.combo_countdown_label.setText("All-fingers hold: –")
+            self.combo_countdown_label.setText("All-fingers hold: –")
+
+        self.last_all_in_band = all_in_band
 
     def _set_bar_color(self, bar: QProgressBar, color: str):
         if color == "green":
