@@ -46,21 +46,30 @@ class PatientGameWindow(QWidget):
         super().__init__()
 
         self.setWindowTitle("Cardinal Grip – Patient Game Mode")
-        self.resize(1100, 650)
+        self.resize(1100, 700)
 
         # --- Serial + data state ---
         self.backend: SerialBackend | None = None
         self.last_time = None  # for dt calculation in timer
 
         # One hold timer per channel (seconds spent continuously in band)
+        self.hhold_time = [0.0] * NUM_CHANNELS  # typo-safe alias removed below
         self.hold_time = [0.0] * NUM_CHANNELS
         self.in_band_prev = [False] * NUM_CHANNELS
+
+        # All-fingers simultaneous hold
+        self.combo_hold_time = 0.0    # seconds all fingers are in band
+        self.combo_reps = 0           # all-finger reps
 
         # Persistent reps per channel, loaded/saved from JSON
         self.reps_per_channel = [0] * NUM_CHANNELS
         self.sessions_completed = 0
         self.stats_path = os.path.join(PROJECT_ROOT, "data", "patient_stats.json")
         self._load_stats()
+
+        # Emoji sequence for success feedback
+        self.emoji_cycle = ["👍", "👏", "🙌", "👌"]
+        self.emoji_index = 0
 
         # --- UI ---
         main_layout = QVBoxLayout()
@@ -70,8 +79,9 @@ class PatientGameWindow(QWidget):
         top_row = QHBoxLayout()
 
         top_row.addWidget(QLabel("Serial port:"))
+        # Use your current default Feather ESP32-S3 port
         self.port_edit = QLineEdit("/dev/cu.usbmodem14101")
-        self.port_edit.setFixedWidth(200)
+        self.port_edit.setFixedWidth(220)
         top_row.addWidget(self.port_edit)
 
         top_row.addWidget(QLabel("Baud:"))
@@ -122,12 +132,14 @@ class PatientGameWindow(QWidget):
         self.target_max_slider.setValue(2000)
         band_layout.addWidget(self.target_max_slider)
 
-        self.band_hint_label = QLabel("Stay in the green zone for 5 seconds to earn a rep.")
+        self.band_hint_label = QLabel(
+            f"Stay in the green zone for {HOLD_SECONDS:.0f} seconds to earn a rep."
+        )
         band_layout.addWidget(self.band_hint_label)
 
         main_layout.addWidget(band_group)
 
-        # ===== CENTER: game bars =====
+        # ===== CENTER: per-finger game bars =====
         center_row = QHBoxLayout()
         main_layout.addLayout(center_row, stretch=1)
 
@@ -177,13 +189,55 @@ class PatientGameWindow(QWidget):
 
             center_row.addLayout(col)
 
+        # ===== ALL-FINGERS COMBO GROUP =====
+        combo_group = QGroupBox("All-Fingers Challenge")
+        combo_layout = QVBoxLayout()
+        combo_group.setLayout(combo_layout)
+
+        self.combo_info_label = QLabel(
+            f"When ALL fingers are in the green zone for {HOLD_SECONDS:.0f} seconds, "
+            "you earn a combo rep!"
+        )
+        combo_layout.addWidget(self.combo_info_label)
+
+        # Horizontal progress bar for all-fingers hold
+        self.combo_bar = QProgressBar()
+        self.combo_bar.setRange(0, 100)  # percent of HOLD_SECONDS
+        self.combo_bar.setValue(0)
+        self.combo_bar.setTextVisible(True)
+        self.combo_bar.setFormat("All-fingers hold: %p%")
+        combo_layout.addWidget(self.combo_bar)
+
+        # All-fingers countdown label
+        self.combo_countdown_label = QLabel("All-fingers hold: –")
+        self.combo_countdown_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.combo_countdown_label.setStyleSheet("font-size: 11pt;")
+        combo_layout.addWidget(self.combo_countdown_label)
+
+        # Combo reps label
+        self.combo_reps_label = QLabel(f"All-fingers reps: {self.combo_reps}")
+        self.combo_reps_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.combo_reps_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        combo_layout.addWidget(self.combo_reps_label)
+
+        # Emoji label
+        self.emoji_label = QLabel("")
+        self.emoji_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        emoji_font = QFont("Arial", 32)
+        self.emoji_label.setFont(emoji_font)
+        combo_layout.addWidget(self.emoji_label)
+
+        main_layout.addWidget(combo_group)
+
         # ===== BOTTOM: overall stats =====
         bottom_row = QHBoxLayout()
         self.total_reps_label = QLabel(self._total_reps_text())
         self.total_reps_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
         bottom_row.addWidget(self.total_reps_label)
 
-        self.session_count_label = QLabel(f"Sessions completed (game mode): {self.sessions_completed}")
+        self.session_count_label = QLabel(
+            f"Sessions completed (game mode): {self.sessions_completed}"
+        )
         bottom_row.addWidget(self.session_count_label)
 
         main_layout.addLayout(bottom_row)
@@ -201,6 +255,7 @@ class PatientGameWindow(QWidget):
             # default structure
             self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = 0
+            self.combo_reps = 0
             return
         try:
             with open(self.stats_path, "r") as f:
@@ -209,15 +264,18 @@ class PatientGameWindow(QWidget):
             if len(self.reps_per_channel) != NUM_CHANNELS:
                 self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = int(data.get("sessions_completed", 0))
+            self.combo_reps = int(data.get("combo_reps", 0))
         except Exception:
             # If corrupted, reset
             self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = 0
+            self.combo_reps = 0
 
     def _save_stats(self):
         data = {
             "reps_per_channel": self.reps_per_channel,
             "sessions_completed": self.sessions_completed,
+            "combo_reps": self.combo_reps,
             "last_updated": datetime.now().isoformat(timespec="seconds"),
         }
         try:
@@ -270,12 +328,18 @@ class PatientGameWindow(QWidget):
         # Reset per-session hold timers ONLY (not reps)
         self.hold_time = [0.0] * NUM_CHANNELS
         self.in_band_prev = [False] * NUM_CHANNELS
+        self.combo_hold_time = 0.0
         self.last_time = time.time()
+        self.combo_bar.setValue(0)
+        self.combo_countdown_label.setText("All-fingers hold: –")
+        self.emoji_label.setText("")
 
         self.timer.start()
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-        self.status_label.setText("Status: Session running – squeeze to hit the green zone!")
+        self.status_label.setText(
+            "Status: Session running – squeeze to hit the green zone!"
+        )
 
     def stop_session(self):
         if self.timer.isActive():
@@ -287,6 +351,11 @@ class PatientGameWindow(QWidget):
             )
         self.start_button.setEnabled(self.backend is not None)
         self.stop_button.setEnabled(False)
+
+        # Reset combo bar visuals
+        self.combo_hold_time = 0.0
+        self.combo_bar.setValue(0)
+        self.combo_countdown_label.setText("All-fingers hold: –")
 
     # ------------- GAME LOOP -------------
 
@@ -317,6 +386,9 @@ class PatientGameWindow(QWidget):
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
+        # Track which channels are in-band for combo logic
+        in_band_flags = [False] * NUM_CHANNELS
+
         for i in range(NUM_CHANNELS):
             val = int(vals[i])
             if val < 0:
@@ -339,17 +411,18 @@ class PatientGameWindow(QWidget):
                 zone = "in_band"
                 color = "green"
 
+            in_band_flags[i] = (zone == "in_band")
+
             self._set_bar_color(self.bar_widgets[i], color)
 
-            # ---- Countdown logic ----
-            # Only accumulate hold_time while in the band during an active session
+            # ---- Per-channel countdown logic ----
             if self.timer.isActive() and zone == "in_band":
                 self.hold_time[i] += dt
                 remaining = max(0.0, HOLD_SECONDS - self.hold_time[i])
                 if remaining > 0:
                     self.countdown_labels[i].setText(f"Hold: {remaining:0.1f} s")
                 else:
-                    # Rep achieved
+                    # Rep achieved for this finger
                     self.reps_per_channel[i] += 1
                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
                     self.total_reps_label.setText(self._total_reps_text())
@@ -362,6 +435,47 @@ class PatientGameWindow(QWidget):
                 # Not in band or session not running → reset hold timer
                 self.hold_time[i] = 0.0
                 self.countdown_labels[i].setText("Hold: –")
+
+        # ---- All-fingers combo logic ----
+        if self.timer.isActive() and all(in_band_flags):
+            # All fingers in band; accumulate combo hold time
+            self.combo_hold_time += dt
+            combo_remaining = max(0.0, HOLD_SECONDS - self.combo_hold_time)
+            pct = int(
+                max(0.0, min(1.0, self.combo_hold_time / HOLD_SECONDS)) * 100.0
+            )
+            self.combo_bar.setValue(pct)
+            if combo_remaining > 0:
+                self.combo_countdown_label.setText(
+                    f"All-fingers hold: {combo_remaining:0.1f} s"
+                )
+            else:
+                # Combo rep achieved
+                self.combo_reps += 1
+                self.combo_reps_label.setText(
+                    f"All-fingers reps: {self.combo_reps}"
+                )
+
+                # Cycle emoji
+                emoji = self.emoji_cycle[self.emoji_index]
+                self.emoji_index = (self.emoji_index + 1) % len(self.emoji_cycle)
+                self.emoji_label.setText(emoji)
+
+                # Reset combo timer for next rep
+                self.combo_hold_time = 0.0
+                self.combo_bar.setValue(0)
+                self.combo_countdown_label.setText("Great job! 🎉")
+
+                # Persist stats
+                self._save_stats()
+        else:
+            # Not all in band or not running: reset combo timer
+            self.combo_hold_time = 0.0
+            self.combo_bar.setValue(0)
+            if self.timer.isActive():
+                self.combo_countdown_label.setText("All-fingers hold: –")
+            else:
+                self.combo_countdown_label.setText("All-fingers hold: –")
 
     def _set_bar_color(self, bar: QProgressBar, color: str):
         if color == "green":
