@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QGroupBox,
+    QComboBox
 )
 import pyqtgraph as pg
 
