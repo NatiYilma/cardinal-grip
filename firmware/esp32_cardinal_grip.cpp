@@ -11,7 +11,8 @@ const char* password = "YOUR_PASSWORD";
 WebSocketsServer webSocket(81);  // ws://<IP>:81
 
 const int NUM_FINGERS = 4;
-const int fingerPins[NUM_FINGERS] = {34, 35, 32, 33}; // adjust later
+// const int fingerPins[NUM_FINGERS] = {34, 35, 32, 33}; // adjust later
+const int fingerPins[NUM_FINGERS] ={A0, A1, A2, A3};
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   // no-op for now
