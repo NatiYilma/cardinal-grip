@@ -1456,7 +1456,7 @@ class PatientWindow(QWidget):
         main_layout.addWidget(self.status_label)
 
         # ===== TARGET BAND (global band; status based on Ch0) =====
-        band_group = QGroupBox("Target Zone (applies to Channel 0 for feedback)")
+        band_group = QGroupBox("Target Zone")
         band_layout = QHBoxLayout()
         band_group.setLayout(band_layout)
 
@@ -1484,13 +1484,13 @@ class PatientWindow(QWidget):
         self.target_max_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         band_layout.addWidget(self.target_max_value_label)
 
-        band_hint = QLabel("Bars use this band for color; status text uses Ch0.")
+        band_hint = QLabel("Bars and graph use this band; status text")
         band_hint.setStyleSheet("color: gray;")
         band_layout.addWidget(band_hint)
 
         main_layout.addWidget(band_group)
 
-        # Slider updates → numeric labels + threshold lines on bars
+        # Slider updates → numeric labels + threshold lines on bars/plot
         self.target_min_slider.valueChanged.connect(self._update_band_labels)
         self.target_max_slider.valueChanged.connect(self._update_band_labels)
 
@@ -1524,15 +1524,23 @@ class PatientWindow(QWidget):
 
             bars_row.addLayout(col)
 
-        # Initialize thresholds on bars
-        self._update_band_labels()
-
-        # ===== PLOT: 4 curves over time =====
+        # ===== PLOT: 4 curves over time + threshold lines =====
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setLabel("left", "Force", units="ADC")
         self.plot_widget.setLabel("bottom", "Time", units="s")
         self.plot_widget.addLegend()
         main_layout.addWidget(self.plot_widget, stretch=1)
+
+        # Threshold lines (horizontal at min/max ADC)
+        thresh_pen = pg.mkPen(
+            QColor(0, 150, 0, 160),
+            width=2,
+            style=Qt.PenStyle.DashLine,
+        )
+        self.min_line = pg.InfiniteLine(angle=0, movable=False, pen=thresh_pen)
+        self.max_line = pg.InfiniteLine(angle=0, movable=False, pen=thresh_pen)
+        self.plot_widget.addItem(self.min_line)
+        self.plot_widget.addItem(self.max_line)
 
         colors = ["r", "g", "b", "y"]
         self.curves = []
@@ -1543,6 +1551,9 @@ class PatientWindow(QWidget):
                 name=f"Ch{c} ({CHANNEL_NAMES[c]})",
             )
             self.curves.append(curve)
+
+        # Initialize thresholds on bars and lines
+        self._update_band_labels()
 
         # ===== BOTTOM: Reset & Save =====
         bottom_row = QHBoxLayout()
@@ -1630,15 +1641,22 @@ class PatientWindow(QWidget):
     # ---------- BAND LABEL / THRESHOLD UPDATE ----------
 
     def _update_band_labels(self):
-        """Update numeric labels and thresholds on all bars."""
+        """Update numeric labels, bar thresholds, and graph threshold lines."""
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
         self.target_min_value_label.setText(str(tmin))
         self.target_max_value_label.setText(str(tmax))
 
+        # Bars
         for bar in self.bar_widgets:
             bar.set_thresholds(tmin, tmax)
+
+        # Plot threshold lines (if created)
+        if hasattr(self, "min_line"):
+            self.min_line.setValue(tmin)
+        if hasattr(self, "max_line"):
+            self.max_line.setValue(tmax)
 
     # ---------- DATA / PLOTTING ----------
 
@@ -1678,7 +1696,7 @@ class PatientWindow(QWidget):
             self.bar_widgets[c].setValue(v)
             self.value_labels[c].setText(f"Force: {v}")
 
-            # Color mapping (same logic as patient_game_app)
+            # Color mapping (richer, like patient_game_app)
             if v < tmin:
                 zone = "low"
                 if tmin > 0:
@@ -1720,11 +1738,11 @@ class PatientWindow(QWidget):
         # Target band feedback based on channel 0
         ch0 = self.values[0][-1]
         if tmin <= ch0 <= tmax:
-            self.status_label.setText("Status: ✅ Ch0 in target zone")
+            self.status_label.setText("Status: ✅ – In target zone")
         elif ch0 < tmin:
-            self.status_label.setText("Status: Ch0 – squeeze a bit harder")
+            self.status_label.setText("Status: 👆 – squeeze a bit harder")
         else:
-            self.status_label.setText("Status: Ch0 – ease off slightly")
+            self.status_label.setText("Status: 👇 – ease off slightly")
 
         # Update plot
         t_list = list(self.times)
