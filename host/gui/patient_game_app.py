@@ -2367,24 +2367,34 @@ class PatientGameWindow(QWidget):
             self.bar_widgets[i].setValue(val)
             self.value_labels[i].setText(f"Force: {val}")
 
-            # Determine zone and color (richer mapping)
+            # Determine zone and color (enhanced mapping)
             if val < tmin:
                 zone = "low"
                 if tmin > 0:
-                    frac_below = val / tmin  # 0.0 (far) → 1.0 (just below)
+                    frac_below = val / tmin  # 0.0 (far below) → 1.0 (just below)
                 else:
                     frac_below = 0.0
 
-                # Far below = orange, closer to threshold = yellow
-                if frac_below < 0.5:
+                # Far below = orange, mid = orangeyellow, near = yellow
+                if frac_below < 1 / 3:
                     color = "orange"
+                elif frac_below < 2 / 3:
+                    color = "orangeyellow"
                 else:
                     color = "yellow"
 
             elif val > tmax:
                 zone = "high"
-                # Above max is always "danger" red
-                color = "red"
+
+                # Normalize how far above max into [0, 1]
+                over_span = max(4095 - tmax, 1)
+                frac_above = (val - tmax) / over_span  # 0.0 just over → 1.0 far over
+
+                # Just over = red, way over = darkred
+                if frac_above < 0.5:
+                    color = "red"
+                else:
+                    color = "darkred"
 
             else:
                 zone = "in_band"
@@ -2523,10 +2533,12 @@ class PatientGameWindow(QWidget):
     def _set_bar_color(self, bar: QProgressBar, color: str):
         palette = {
             "orange": "#FF9800",
+            "orangeyellow": "#FFC107",
             "yellow": "#FFEB3B",
             "yellowgreen": "#CDDC39",
             "green": "#4CAF50",
             "darkgreen": "#2E7D32",
+            "darkred": "#C62828",
             "red": "#F44336",
         }
         chunk_color = palette.get(color, "#FF9800")
