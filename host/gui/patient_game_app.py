@@ -282,15 +282,15 @@
 #             s.setVolume(0.9)  # 0.0–1.0
 #             return s
 
-#         self.sounds["applepay"] = make_sound("applepay", "applepay.wav")
-#         self.sounds["bruh"] = make_sound("bruh", "bruh.wav")
-#         self.sounds["yay"] = make_sound("yay", "yay.wav")
-#         self.sounds["mario"] = make_sound("mario", "mario.wav")
-#         self.sounds["oof"] = make_sound("oof", "oof.wav")
-#         self.sounds["rizz"] = make_sound("rizz", "rizz.wav")
-#         self.sounds["spongebob"] = make_sound("spongebob", "spongebob.wav")
-#         self.sounds["wow"] = make_sound("wow", "wow.wav")
-#         self.sounds["duolingo"] = make_sound("duolingo", "duolingo.wav")
+#         self.sounds["applepay"] = make_sound("applepay", "applepay_mono.wav")
+#         self.sounds["bruh"] = make_sound("bruh", "bruh_mono.wav")
+#         self.sounds["yay"] = make_sound("yay", "yay_mono.wav")
+#         self.sounds["mario"] = make_sound("mario", "mario_mono.wav")
+#         self.sounds["oof"] = make_sound("oof", "oof_mono.wav")
+#         self.sounds["rizz"] = make_sound("rizz", "rizz_mono.wav")
+#         self.sounds["spongebob"] = make_sound("spongebob", "spongebob_mono.wav")
+#         self.sounds["wow"] = make_sound("wow", "wow_mono.wav")
+#         self.sounds["duolingo"] = make_sound("duolingo", "duolingo_mono.wav")
 
 #     def _play_sound(self, sound: QSoundEffect | None):
 #         """Safely play a sound if it exists."""
@@ -466,7 +466,7 @@
 #             in_band_flags[i] = (zone == "in_band")
 #             self._set_bar_color(self.bar_widgets[i], color)
 
-#             # --- Single-finger target zone ENTER: play applepay.wav ---
+#             # --- Single-finger target zone ENTER: play applepay_mono.wav ---
 #             if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
 #                 self._play_sound(self.sounds.get("applepay"))
 
@@ -482,7 +482,7 @@
 #                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
 #                     self.total_reps_label.setText(self._total_reps_text())
 #                     self.countdown_labels[i].setText("Nice! ✅")
-#                     # Play duolingo.wav on successful single-finger rep
+#                     # Play duolingo_mono.wav on successful single-finger rep
 #                     self._play_sound(self.sounds.get("duolingo"))
 
 #                     # Reset hold timer so they must do another full 5 s
@@ -501,7 +501,7 @@
 #         all_in_band = self.timer.isActive() and all(in_band_flags)
 
 #         if all_in_band:
-#             # Combo just started: play mario.wav
+#             # Combo just started: play mario_mono.wav
 #             if not self.last_all_in_band:
 #                 self._play_sound(self.sounds.get("mario"))
 
@@ -879,15 +879,15 @@
 #             s.setVolume(0.9)  # 0.0–1.0
 #             return s
 
-#         self.sounds["applepay"] = make_sound("applepay.wav")
-#         self.sounds["bruh"] = make_sound("bruh.wav")
-#         self.sounds["duolingo"] = make_sound("duolingo.wav")
-#         self.sounds["mario"] = make_sound("mario.wav")
-#         self.sounds["oof"] = make_sound("oof.wav")
-#         self.sounds["rizz"] = make_sound("rizz.wav")
-#         self.sounds["spongebob"] = make_sound("spongebob.wav")
-#         self.sounds["wow"] = make_sound("wow.wav")
-#         self.sounds["yay"] = make_sound("yay.wav")
+#         self.sounds["applepay"] = make_sound("applepay_mono.wav")
+#         self.sounds["bruh"] = make_sound("bruh_mono.wav")
+#         self.sounds["duolingo"] = make_sound("duolingo_mono.wav")
+#         self.sounds["mario"] = make_sound("mario_mono.wav")
+#         self.sounds["oof"] = make_sound("oof_mono.wav")
+#         self.sounds["rizz"] = make_sound("rizz_mono.wav")
+#         self.sounds["spongebob"] = make_sound("spongebob_mono.wav")
+#         self.sounds["wow"] = make_sound("wow_mono.wav")
+#         self.sounds["yay"] = make_sound("yay_mono.wav")
 
 #     def _play_sound(self, sound: QSoundEffect | None):
 #         """Safely play a sound if it exists."""
@@ -1062,7 +1062,7 @@
 #             in_band_flags[i] = (zone == "in_band")
 #             self._set_bar_color(self.bar_widgets[i], color)
 
-#             # --- Single-finger target zone ENTER: play applepay.wav ---
+#             # --- Single-finger target zone ENTER: play applepay_mono.wav ---
 #             if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
 #                 self._play_sound(self.sounds.get("applepay"))
 
@@ -1078,7 +1078,7 @@
 #                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
 #                     self.total_reps_label.setText(self._total_reps_text())
 #                     self.countdown_labels[i].setText("Nice! ✅")
-#                     # Play duolingo.wav on successful single-finger rep
+#                     # Play duolingo_mono.wav on successful single-finger rep
 #                     self._play_sound(self.sounds.get("duolingo"))
 
 #                     # Reset hold timer so they must do another full 5 s
@@ -1097,7 +1097,7 @@
 #         all_in_band = self.timer.isActive() and all(in_band_flags)
 
 #         if all_in_band:
-#             # Combo just started: play mario.wav
+#             # Combo just started: play mario_mono.wav
 #             if not self.last_all_in_band:
 #                 self._play_sound(self.sounds.get("mario"))
 
@@ -1482,15 +1482,15 @@ class PatientGameWindow(QWidget):
             s.setVolume(0.9)  # 0.0–1.0
             return s
 
-        self.sounds["applepay"] = make_sound("applepay.wav")
-        self.sounds["bruh"] = make_sound("bruh.wav")
-        self.sounds["duolingo"] = make_sound("duolingo.wav")
-        self.sounds["mario"] = make_sound("mario.wav")
-        self.sounds["oof"] = make_sound("oof.wav")
-        self.sounds["rizz"] = make_sound("rizz.wav")
-        self.sounds["spongebob"] = make_sound("spongebob.wav")
-        self.sounds["wow"] = make_sound("wow.wav")
-        self.sounds["yay"] = make_sound("yay.wav")
+        self.sounds["applepay"] = make_sound("applepay_mono.wav")
+        self.sounds["bruh"] = make_sound("bruh_mono.wav")
+        self.sounds["duolingo"] = make_sound("duolingo_mono.wav")
+        self.sounds["mario"] = make_sound("mario_mono.wav")
+        self.sounds["oof"] = make_sound("oof_mono.wav")
+        self.sounds["rizz"] = make_sound("rizz_mono.wav")
+        self.sounds["spongebob"] = make_sound("spongebob_mono.wav")
+        self.sounds["wow"] = make_sound("wow_mono.wav")
+        self.sounds["yay"] = make_sound("yay_mono.wav")
 
     def _play_sound(self, sound: QSoundEffect | None):
         """Safely play a sound if it exists."""
@@ -1672,7 +1672,7 @@ class PatientGameWindow(QWidget):
             in_band_flags[i] = (zone == "in_band")
             self._set_bar_color(self.bar_widgets[i], color)
 
-            # --- Single-finger target zone ENTER: play applepay.wav ---
+            # --- Single-finger target zone ENTER: play applepay_mono.wav ---
             if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
                 self._play_sound(self.sounds.get("applepay"))
 
@@ -1688,7 +1688,7 @@ class PatientGameWindow(QWidget):
                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
                     self.total_reps_label.setText(self._total_reps_text())
                     self.countdown_labels[i].setText("Nice! ✅")
-                    # Play duolingo.wav on successful single-finger rep
+                    # Play duolingo_mono.wav on successful single-finger rep
                     self._play_sound(self.sounds.get("duolingo"))
 
                     # Reset hold timer so they must do another full 5 s
@@ -1707,7 +1707,7 @@ class PatientGameWindow(QWidget):
         all_in_band = self.timer.isActive() and all(in_band_flags)
 
         if all_in_band:
-            # Combo just started: play mario.wav
+            # Combo just started: play mario_mono.wav
             if not self.last_all_in_band:
                 self._play_sound(self.sounds.get("mario"))
 
