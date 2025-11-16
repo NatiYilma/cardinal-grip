@@ -140,7 +140,7 @@ from PyQt6.QtWidgets import QApplication
 from patient_app import PatientWindow
 from patient_game_app import PatientGameWindow
 from comms.sim_backend import SimBackend as SerialBackend
-# For real hardware instead of SimBackend, you’d use:
+# For real hardware, you’d instead use:
 # from comms.serial_backend import SerialBackend
 
 
@@ -148,7 +148,7 @@ def main():
     app = QApplication(sys.argv)
 
     # ---------- Shared backend for BOTH windows ----------
-    # Single backend instance so keyboard input and data stream are shared.
+    # Single backend instance so keyboard input + data are shared.
     backend = SerialBackend(port="/dev/cu.usbmodem14101", baud=115200, timeout=0.01)
     backend.start()
 
@@ -165,7 +165,8 @@ def main():
             game_win.target_min_slider.blockSignals(True)
             game_win.target_min_slider.setValue(val)
             game_win.target_min_slider.blockSignals(False)
-            # For game window, we want threshold lines / labels to update
+            game_win.target_min_slider.update()
+            # Update any game-side band visuals / labels
             if hasattr(game_win, "_update_band_labels"):
                 game_win._update_band_labels()
 
@@ -175,6 +176,10 @@ def main():
             patient_win.target_min_slider.blockSignals(True)
             patient_win.target_min_slider.setValue(val)
             patient_win.target_min_slider.blockSignals(False)
+            patient_win.target_min_slider.update()
+            # If you later add a similar helper in patient_app, this will call it
+            if hasattr(patient_win, "_update_band_labels"):
+                patient_win._update_band_labels()
 
     def sync_max_from_patient(val: int):
         # Patient → Game
@@ -182,6 +187,7 @@ def main():
             game_win.target_max_slider.blockSignals(True)
             game_win.target_max_slider.setValue(val)
             game_win.target_max_slider.blockSignals(False)
+            game_win.target_max_slider.update()
             if hasattr(game_win, "_update_band_labels"):
                 game_win._update_band_labels()
 
@@ -191,8 +197,11 @@ def main():
             patient_win.target_max_slider.blockSignals(True)
             patient_win.target_max_slider.setValue(val)
             patient_win.target_max_slider.blockSignals(False)
+            patient_win.target_max_slider.update()
+            if hasattr(patient_win, "_update_band_labels"):
+                patient_win._update_band_labels()
 
-    # Wire signals BOTH ways:
+    # Wire signals BOTH ways
     # patient → game
     patient_win.target_min_slider.valueChanged.connect(sync_min_from_patient)
     patient_win.target_max_slider.valueChanged.connect(sync_max_from_patient)
@@ -201,7 +210,7 @@ def main():
     game_win.target_min_slider.valueChanged.connect(sync_min_from_game)
     game_win.target_max_slider.valueChanged.connect(sync_max_from_game)
 
-    # Make sure they start with the same values (take game as canonical, if you prefer)
+    # Start with the same values (take game or patient as canonical; here: game)
     patient_win.target_min_slider.setValue(game_win.target_min_slider.value())
     patient_win.target_max_slider.setValue(game_win.target_max_slider.value())
 
