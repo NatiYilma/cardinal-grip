@@ -2566,6 +2566,762 @@
 #########===================== PATIENT GAME GUI V5 ==============================##########
 # host/gui/patient_game_app.py
 
+# import os
+# import sys
+# import json
+# import time
+# from datetime import datetime
+
+# from PyQt6.QtCore import QTimer, Qt, QUrl
+# from PyQt6.QtWidgets import (
+#     QApplication,
+#     QWidget,
+#     QVBoxLayout,
+#     QHBoxLayout,
+#     QLabel,
+#     QPushButton,
+#     QLineEdit,
+#     QSlider,
+#     QProgressBar,
+#     QMessageBox,
+#     QGroupBox,
+# )
+# from PyQt6.QtGui import QFont, QPainter, QPen, QColor
+# from PyQt6.QtMultimedia import QSoundEffect
+
+# # -------- PATH SETUP (same pattern as other GUIs) --------
+# GUI_DIR = os.path.dirname(__file__)          # .../host/gui
+# HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
+# PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
+
+# if PROJECT_ROOT not in sys.path:
+#     sys.path.append(PROJECT_ROOT)
+
+# # from comms.serial_backend import SerialBackend  # noqa: E402
+# from comms.sim_backend import SimBackend as SerialBackend  # Simulated inputs from ESP32-S3
+# # --------------------------------------------------------
+
+
+# NUM_CHANNELS = 4
+# CHANNEL_NAMES = ["Index", "Middle", "Ring", "Pinky"]
+
+# # Seconds the finger must stay in target band to count a rep
+# HOLD_SECONDS = 5.0
+
+
+# class ThresholdProgressBar(QProgressBar):
+#     """Vertical progress bar with faint dashed lines for min/max thresholds."""
+
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self._min_thresh: int | None = None
+#         self._max_thresh: int | None = None
+
+#     def set_thresholds(self, min_val: int, max_val: int):
+#         self._min_thresh = min_val
+#         self._max_thresh = max_val
+#         self.update()
+
+#     def paintEvent(self, event):
+#         # Draw normal progress bar first
+#         super().paintEvent(event)
+
+#         if self._min_thresh is None or self._max_thresh is None:
+#             return
+
+#         rect = self.contentsRect()
+#         if rect.height() <= 0:
+#             return
+
+#         minimum = self.minimum()
+#         maximum = self.maximum()
+#         span = maximum - minimum
+#         if span <= 0:
+#             return
+
+#         painter = QPainter(self)
+#         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+#         pen = QPen(QColor(0, 0, 0, 120))  # faint dark gray
+#         pen.setStyle(Qt.PenStyle.DashLine)
+#         pen.setWidth(1)
+#         painter.setPen(pen)
+
+#         def draw_for_value(v):
+#             # Clamp within bar range
+#             v_clamped = max(minimum, min(maximum, v))
+#             frac = (v_clamped - minimum) / span  # 0 at min, 1 at max
+#             # vertical bar: 0 at bottom, 1 at top
+#             y = rect.bottom() - frac * rect.height()
+#             painter.drawLine(rect.left() + 2, int(y), rect.right() - 2, int(y))
+
+#         draw_for_value(self._min_thresh)
+#         draw_for_value(self._max_thresh)
+
+#         painter.end()
+
+
+# class PatientGameWindow(QWidget):
+#     def __init__(self, backend: SerialBackend | None = None, owns_backend: bool = True):
+#         super().__init__()
+
+#         self.setWindowTitle("Cardinal Grip – Patient Game Mode")
+#         self.resize(1100, 700)
+
+#         # Shared-backend support
+#         self.backend: SerialBackend | None = backend
+#         self.owns_backend = owns_backend
+#         self.last_time = None  # for dt calculation in timer
+
+#         # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
+#         # Allow this window to receive key events so a simulated backend
+#         # (e.g., SimBackend with keyboard control) can be driven directly.
+#         # For real Serial/WiFi/Bluetooth backends, you can safely comment this out.
+#         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+#         # ==== END SIM BACKEND HOOK ====
+
+#         # One hold timer per channel (seconds spent continuously in band)
+#         self.hold_time = [0.0] * NUM_CHANNELS
+#         self.in_band_prev = [False] * NUM_CHANNELS
+
+#         # All-fingers simultaneous hold
+#         self.combo_hold_time = 0.0    # seconds all fingers are in band
+#         self.combo_reps = 0           # all-finger reps
+#         self.last_all_in_band = False
+
+#         # Persistent reps per channel, loaded/saved from JSON
+#         self.reps_per_channel = [0] * NUM_CHANNELS
+#         self.sessions_completed = 0
+#         self.stats_path = os.path.join(PROJECT_ROOT, "data", "patient_stats.json")
+#         self._load_stats()
+
+#         # Emoji sequence for success feedback
+#         self.emoji_cycle = ["👍", "👏", "🙌", "👌"]
+#         self.emoji_index = 0
+
+#         # --- Audio setup ---
+#         self.sounds: dict[str, QSoundEffect | None] = {}
+#         self._init_sounds()
+
+#         # Fail / success cycles for combo
+#         self.combo_fail_sounds = [
+#             self.sounds.get("oof"),
+#             self.sounds.get("spongebob"),
+#             self.sounds.get("bruh"),
+#         ]
+#         self.combo_success_sounds = [
+#             self.sounds.get("rizz"),
+#             self.sounds.get("wow"),
+#             self.sounds.get("yay"),
+#         ]
+#         self.combo_fail_index = 0
+#         self.combo_success_index = 0
+
+#         # --- UI ---
+#         main_layout = QVBoxLayout()
+#         self.setLayout(main_layout)
+
+#         # ===== TOP: serial + control bar =====
+#         top_row = QHBoxLayout()
+
+#         top_row.addWidget(QLabel("Serial port:"))
+#         # Default port; you can edit this in the GUI each run
+#         self.port_edit = QLineEdit("/dev/cu.usbmodem14101")
+#         self.port_edit.setFixedWidth(220)
+#         top_row.addWidget(self.port_edit)
+
+#         top_row.addWidget(QLabel("Baud:"))
+#         self.baud_edit = QLineEdit("115200")
+#         self.baud_edit.setFixedWidth(80)
+#         top_row.addWidget(self.baud_edit)
+
+#         self.connect_button = QPushButton("Connect")
+#         self.connect_button.clicked.connect(self.handle_connect)
+#         top_row.addWidget(self.connect_button)
+
+#         self.disconnect_button = QPushButton("Disconnect")
+#         self.disconnect_button.clicked.connect(self.handle_disconnect)
+#         self.disconnect_button.setEnabled(False)
+#         top_row.addWidget(self.disconnect_button)
+
+#         self.start_button = QPushButton("Start Session")
+#         self.start_button.clicked.connect(self.start_session)
+#         self.start_button.setEnabled(False)
+#         top_row.addWidget(self.start_button)
+
+#         self.stop_button = QPushButton("Stop Session")
+#         self.stop_button.clicked.connect(self.stop_session)
+#         self.stop_button.setEnabled(False)
+#         top_row.addWidget(self.stop_button)
+
+#         main_layout.addLayout(top_row)
+
+#         # Status line
+#         self.status_label = QLabel("Status: Not connected")
+#         self.status_label.setStyleSheet("font-weight: bold;")
+#         main_layout.addWidget(self.status_label)
+
+#         # ===== TARGET BAND CONTROLS =====
+#         band_group = QGroupBox("Target Zone (applies to all fingers)")
+#         band_layout = QHBoxLayout()
+#         band_group.setLayout(band_layout)
+
+#         # Min slider + value label
+#         band_layout.addWidget(QLabel("Min (ADC):"))
+#         self.target_min_slider = QSlider(Qt.Orientation.Horizontal)
+#         self.target_min_slider.setRange(0, 4095)
+#         self.target_min_slider.setValue(1200)
+#         band_layout.addWidget(self.target_min_slider)
+
+#         self.target_min_value_label = QLabel(str(self.target_min_slider.value()))
+#         self.target_min_value_label.setFixedWidth(60)
+#         self.target_min_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#         band_layout.addWidget(self.target_min_value_label)
+
+#         # Max slider + value label
+#         band_layout.addWidget(QLabel("Max (ADC):"))
+#         self.target_max_slider = QSlider(Qt.Orientation.Horizontal)
+#         self.target_max_slider.setRange(0, 4095)
+#         self.target_max_slider.setValue(2000)
+#         band_layout.addWidget(self.target_max_slider)
+
+#         self.target_max_value_label = QLabel(str(self.target_max_slider.value()))
+#         self.target_max_value_label.setFixedWidth(60)
+#         self.target_max_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#         band_layout.addWidget(self.target_max_value_label)
+
+#         self.band_hint_label = QLabel(
+#             f"Stay in the green zone for {HOLD_SECONDS:.0f} seconds to earn a rep."
+#         )
+#         band_layout.addWidget(self.band_hint_label)
+
+#         main_layout.addWidget(band_group)
+
+#         # Slider change updates labels + thresholds
+#         self.target_min_slider.valueChanged.connect(self._update_band_labels)
+#         self.target_max_slider.valueChanged.connect(self._update_band_labels)
+
+#         # ===== CENTER: per-finger game bars =====
+#         center_row = QHBoxLayout()
+#         main_layout.addLayout(center_row, stretch=1)
+
+#         self.bar_widgets: list[ThresholdProgressBar] = []
+#         self.value_labels: list[QLabel] = []
+#         self.countdown_labels: list[QLabel] = []
+#         self.rep_labels: list[QLabel] = []
+
+#         for i in range(NUM_CHANNELS):
+#             col = QVBoxLayout()
+
+#             # Finger name
+#             name_label = QLabel(CHANNEL_NAMES[i])
+#             name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#             name_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+#             col.addWidget(name_label)
+
+#             # Vertical bar (force)
+#             bar = ThresholdProgressBar()
+#             bar.setOrientation(Qt.Orientation.Vertical)
+#             bar.setRange(0, 4095)
+#             bar.setValue(0)
+#             bar.setFixedWidth(60)
+#             bar.setStyleSheet("QProgressBar::chunk { background-color: orange; }")
+#             col.addWidget(bar, stretch=1, alignment=Qt.AlignmentFlag.AlignHCenter)
+#             self.bar_widgets.append(bar)
+
+#             # Current value label
+#             val_label = QLabel("Force: 0")
+#             val_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#             col.addWidget(val_label)
+#             self.value_labels.append(val_label)
+
+#             # Countdown label
+#             cd_label = QLabel("Hold: –")
+#             cd_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#             cd_label.setStyleSheet("font-size: 11pt;")
+#             col.addWidget(cd_label)
+#             self.countdown_labels.append(cd_label)
+
+#             # Rep count label (persistent over runs)
+#             rep_label = QLabel(f"Reps: {self.reps_per_channel[i]}")
+#             rep_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#             rep_label.setStyleSheet("font-size: 11pt; font-weight: bold;")
+#             col.addWidget(rep_label)
+#             self.rep_labels.append(rep_label)
+
+#             center_row.addLayout(col)
+
+#         # Initialize thresholds on bars + numeric labels
+#         self._update_band_labels()
+
+#         # ===== ALL-FINGERS COMBO GROUP =====
+#         combo_group = QGroupBox("All-Fingers Challenge")
+#         combo_layout = QVBoxLayout()
+#         combo_group.setLayout(combo_layout)
+
+#         self.combo_info_label = QLabel(
+#             f"When ALL fingers are in the green zone for {HOLD_SECONDS:.0f} seconds, "
+#             "you earn a combo rep!"
+#         )
+#         combo_layout.addWidget(self.combo_info_label)
+
+#         # Horizontal progress bar for all-fingers hold
+#         self.combo_bar = QProgressBar()
+#         self.combo_bar.setRange(0, 100)  # percent of HOLD_SECONDS
+#         self.combo_bar.setValue(0)
+#         self.combo_bar.setTextVisible(True)
+#         self.combo_bar.setFormat("All-fingers hold: %p%")
+#         combo_layout.addWidget(self.combo_bar)
+
+#         # All-fingers countdown label
+#         self.combo_countdown_label = QLabel("All-fingers hold: –")
+#         self.combo_countdown_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#         self.combo_countdown_label.setStyleSheet("font-size: 11pt;")
+#         combo_layout.addWidget(self.combo_countdown_label)
+
+#         # Combo reps label
+#         self.combo_reps_label = QLabel(f"All-fingers reps: {self.combo_reps}")
+#         self.combo_reps_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#         self.combo_reps_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+#         combo_layout.addWidget(self.combo_reps_label)
+
+#         # Emoji label
+#         self.emoji_label = QLabel("")
+#         self.emoji_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+#         emoji_font = QFont("Arial", 32)
+#         self.emoji_label.setFont(emoji_font)
+#         combo_layout.addWidget(self.emoji_label)
+
+#         main_layout.addWidget(combo_group)
+
+#         # ===== BOTTOM: overall stats =====
+#         bottom_row = QHBoxLayout()
+#         self.total_reps_label = QLabel(self._total_reps_text())
+#         self.total_reps_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+#         bottom_row.addWidget(self.total_reps_label)
+
+#         self.session_count_label = QLabel(
+#             f"Sessions completed (game mode): {self.sessions_completed}"
+#         )
+#         bottom_row.addWidget(self.session_count_label)
+
+#         main_layout.addLayout(bottom_row)
+
+#         # ===== TIMER =====
+#         self.timer = QTimer()
+#         self.timer.setInterval(50)  # 20 Hz
+#         self.timer.timeout.connect(self.game_tick)
+
+#     # ------------- AUDIO HELPERS -------------
+
+#     def _init_sounds(self):
+#         """Load all .wav files from PROJECT_ROOT/audio into QSoundEffect objects."""
+#         audio_dir = os.path.join(PROJECT_ROOT, "audio")
+
+#         def make_sound(filename: str) -> QSoundEffect | None:
+#             path = os.path.join(audio_dir, filename)
+#             if not os.path.isfile(path):
+#                 # Don't crash if file is missing; just skip it.
+#                 return None
+#             s = QSoundEffect()
+#             s.setSource(QUrl.fromLocalFile(path))
+#             s.setVolume(0.9)  # 0.0–1.0
+#             return s
+
+#         self.sounds["applepay"] = make_sound("applepay_mono.wav")
+#         self.sounds["bruh"] = make_sound("bruh_mono.wav")
+#         self.sounds["duolingo"] = make_sound("duolingo_mono.wav")
+#         self.sounds["mario"] = make_sound("mario_mono.wav")
+#         self.sounds["oof"] = make_sound("oof_mono.wav")
+#         self.sounds["rizz"] = make_sound("rizz_mono.wav")
+#         self.sounds["spongebob"] = make_sound("spongebob_mono.wav")
+#         self.sounds["wow"] = make_sound("wow_mono.wav")
+#         self.sounds["yay"] = make_sound("yay_mono.wav")
+
+#     def _play_sound(self, sound: QSoundEffect | None):
+#         """Safely play a sound if it exists."""
+#         if sound is None:
+#             return
+#         sound.stop()
+#         sound.play()
+
+#     # ------------- STATS PERSISTENCE (JSON) -------------
+
+#     def _load_stats(self):
+#         os.makedirs(os.path.join(PROJECT_ROOT, "data"), exist_ok=True)
+#         if not os.path.isfile(self.stats_path):
+#             # default structure
+#             self.reps_per_channel = [0] * NUM_CHANNELS
+#             self.sessions_completed = 0
+#             self.combo_reps = 0
+#             return
+#         try:
+#             with open(self.stats_path, "r") as f:
+#                 data = json.load(f)
+#             self.reps_per_channel = data.get("reps_per_channel", [0] * NUM_CHANNELS)
+#             if len(self.reps_per_channel) != NUM_CHANNELS:
+#                 self.reps_per_channel = [0] * NUM_CHANNELS
+#             self.sessions_completed = int(data.get("sessions_completed", 0))
+#             self.combo_reps = int(data.get("combo_reps", 0))
+#         except Exception:
+#             # If corrupted, reset
+#             self.reps_per_channel = [0] * NUM_CHANNELS
+#             self.sessions_completed = 0
+#             self.combo_reps = 0
+
+#     def _save_stats(self):
+#         data = {
+#             "reps_per_channel": self.reps_per_channel,
+#             "sessions_completed": self.sessions_completed,
+#             "combo_reps": self.combo_reps,
+#             "last_updated": datetime.now().isoformat(timespec="seconds"),
+#         }
+#         try:
+#             with open(self.stats_path, "w") as f:
+#                 json.dump(data, f, indent=2)
+#         except Exception:
+#             # Don't crash GUI if writing fails
+#             pass
+
+#     def _total_reps_text(self):
+#         total = sum(self.reps_per_channel)
+#         return f"Total reps across fingers: {total}"
+
+#     def _update_band_labels(self):
+#         """Update numeric labels for Min/Max and push thresholds to all bars."""
+#         tmin = self.target_min_slider.value()
+#         tmax = self.target_max_slider.value()
+
+#         self.target_min_value_label.setText(str(tmin))
+#         self.target_max_value_label.setText(str(tmax))
+
+#         for bar in self.bar_widgets:
+#             bar.set_thresholds(tmin, tmax)
+
+#     # ------------- CONNECTION / SESSION CONTROL -------------
+
+#     def handle_connect(self):
+#         # If using a shared backend, don't reopen the port; just enable session.
+#         if self.backend is not None and not self.owns_backend:
+#             self.status_label.setText("Status: Using shared backend")
+#             self.connect_button.setEnabled(False)
+#             self.disconnect_button.setEnabled(False)
+#             self.start_button.setEnabled(True)
+#             return
+
+#         if self.backend is not None:
+#             return
+
+#         port = self.port_edit.text().strip()
+#         try:
+#             baud = int(self.baud_edit.text().strip())
+#         except ValueError:
+#             QMessageBox.warning(self, "Error", "Invalid baud rate.")
+#             return
+
+#         try:
+#             self.backend = SerialBackend(port=port, baud=baud, timeout=0.01)
+#             self.backend.start()
+#             self.owns_backend = True
+#         except Exception as e:
+#             QMessageBox.critical(self, "Serial error", f"Failed to open {port}:\n{e}")
+#             self.backend = None
+#             return
+
+#         self.status_label.setText(f"Status: Connected to {port} @ {baud}")
+#         self.connect_button.setEnabled(False)
+#         self.disconnect_button.setEnabled(True)
+#         self.start_button.setEnabled(True)
+
+#     def handle_disconnect(self):
+#         self.stop_session()
+#         if self.backend is not None and self.owns_backend:
+#             self.backend.stop()
+#             self.backend = None
+#         self.status_label.setText("Status: Disconnected")
+#         self.connect_button.setEnabled(True)
+#         self.disconnect_button.setEnabled(False)
+#         self.start_button.setEnabled(False)
+
+#         # Reset combo bar visuals
+#         self.combo_hold_time = 0.0
+#         self.combo_bar.setValue(0)
+#         self.combo_countdown_label.setText("All-fingers hold: –")
+#         self.last_all_in_band = False
+
+#     def start_session(self):
+#         # Reset per-session hold timers ONLY (not reps)
+#         self.hold_time = [0.0] * NUM_CHANNELS
+#         self.in_band_prev = [False] * NUM_CHANNELS
+#         self.combo_hold_time = 0.0
+#         self.last_time = time.time()
+#         self.last_all_in_band = False
+#         self.combo_bar.setValue(0)
+#         self.combo_countdown_label.setText("All-fingers hold: –")
+#         self.emoji_label.setText("")
+
+#         self.timer.start()
+#         self.start_button.setEnabled(False)
+#         self.stop_button.setEnabled(True)
+#         self.status_label.setText(
+#             "Status: Session running – squeeze to hit the green zone!"
+#         )
+
+#         # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
+#         self.setFocus()
+#         # ==== END SIM BACKEND HOOK ====
+
+#     def stop_session(self):
+#         if self.timer.isActive():
+#             self.timer.stop()
+#             self.sessions_completed += 1
+#             self._save_stats()
+#             self.session_count_label.setText(
+#                 f"Sessions completed (game mode): {self.sessions_completed}"
+#             )
+#         self.start_button.setEnabled(self.backend is not None)
+#         self.stop_button.setEnabled(False)
+
+#         # Reset combo bar visuals
+#         self.combo_hold_time = 0.0
+#         self.combo_bar.setValue(0)
+#         self.combo_countdown_label.setText("All-fingers hold: –")
+#         self.last_all_in_band = False
+
+#     # ------------- GAME LOOP -------------
+
+#     def game_tick(self):
+#         if self.backend is None:
+#             return
+
+#         vals = self.backend.get_latest()
+#         if vals is None:
+#             return
+
+#         # Ensure vals is a list/tuple of length NUM_CHANNELS
+#         if isinstance(vals, (int, float)):
+#             vals = [vals] * NUM_CHANNELS
+#         elif isinstance(vals, (list, tuple)):
+#             if len(vals) < NUM_CHANNELS:
+#                 vals = list(vals) + [0] * (NUM_CHANNELS - len(vals))
+#         else:
+#             return
+
+#         now = time.time()
+#         if self.last_time is None:
+#             dt = 0.0
+#         else:
+#             dt = now - self.last_time
+#         self.last_time = now
+
+#         tmin = self.target_min_slider.value()
+#         tmax = self.target_max_slider.value()
+
+#         # Track which channels are in-band for combo logic
+#         in_band_flags = [False] * NUM_CHANNELS
+
+#         for i in range(NUM_CHANNELS):
+#             val = int(vals[i])
+#             val = max(0, min(4095, val))
+
+#             # Update bar & numeric text
+#             self.bar_widgets[i].setValue(val)
+#             self.value_labels[i].setText(f"Force: {val}")
+
+#             # Determine zone and color (richer mapping)
+#             if val < tmin:
+#                 zone = "low"
+#                 if tmin > 0:
+#                     frac_below = val / tmin  # 0.0 (far) → 1.0 (just below)
+#                 else:
+#                     frac_below = 0.0
+
+#                 # Far below = orange, closer to threshold = orangeyellow -> yellow
+#                 if frac_below < 1 / 3:
+#                     color = "orange"
+#                 elif frac_below < 2 / 3:
+#                     color = "orangeyellow"
+#                 else:
+#                     color = "yellow"
+
+#             elif val > tmax:
+#                 zone = "high"
+#                 over_span = max(4095 - tmax, 1)
+#                 frac_above = (val - tmax) / over_span  # 0.0 just over → 1.0 far over
+
+#                 if frac_above < 0.5:
+#                     color = "darkred"
+#                 else:
+#                     color = "red"
+
+#             else:
+#                 zone = "in_band"
+#                 span = max(tmax - tmin, 1)
+#                 frac_in = (val - tmin) / span  # 0.0 at min → 1.0 at max
+
+#                 # Inside band: yellowgreen → green → darkgreen
+#                 if frac_in < 1 / 3:
+#                     color = "yellowgreen"
+#                 elif frac_in < 2 / 3:
+#                     color = "green"
+#                 else:
+#                     color = "darkgreen"
+
+#             in_band_flags[i] = (zone == "in_band")
+#             self._set_bar_color(self.bar_widgets[i], color)
+
+#             # --- Single-finger target zone ENTER: play applepay_mono.wav ---
+#             if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
+#                 self._play_sound(self.sounds.get("applepay"))
+
+#             # ---- Per-channel countdown logic ----
+#             if self.timer.isActive() and zone == "in_band":
+#                 self.hold_time[i] += dt
+#                 remaining = max(0.0, HOLD_SECONDS - self.hold_time[i])
+#                 if remaining > 0:
+#                     self.countdown_labels[i].setText(f"Hold: {remaining:0.1f} s")
+#                 else:
+#                     # Rep achieved for this finger
+#                     self.reps_per_channel[i] += 1
+#                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
+#                     self.total_reps_label.setText(self._total_reps_text())
+#                     self.countdown_labels[i].setText("Nice! ✅")
+#                     # Play duolingo_mono.wav on successful single-finger rep
+#                     self._play_sound(self.sounds.get("duolingo"))
+
+#                     # Reset hold timer so they must do another full 5 s
+#                     self.hold_time[i] = 0.0
+#                     # Save to disk on each successful rep
+#                     self._save_stats()
+#             else:
+#                 # Not in band or session not running → reset hold timer
+#                 self.hold_time[i] = 0.0
+#                 self.countdown_labels[i].setText("Hold: –")
+
+#             # Update previous in-band state
+#             self.in_band_prev[i] = (zone == "in_band")
+
+#         # ---- All-fingers combo logic ----
+#         all_in_band = self.timer.isActive() and all(in_band_flags)
+
+#         if all_in_band:
+#             # Combo just started: play mario_mono.wav
+#             if not self.last_all_in_band:
+#                 self._play_sound(self.sounds.get("mario"))
+
+#             self.combo_hold_time += dt
+#             combo_remaining = max(0.0, HOLD_SECONDS - self.combo_hold_time)
+#             pct = int(
+#                 max(0.0, min(1.0, self.combo_hold_time / HOLD_SECONDS)) * 100.0
+#             )
+#             self.combo_bar.setValue(pct)
+
+#             if combo_remaining > 0:
+#                 self.combo_countdown_label.setText(
+#                     f"All-fingers hold: {combo_remaining:0.1f} s"
+#                 )
+#             else:
+#                 # Combo rep achieved
+#                 self.combo_reps += 1
+#                 self.combo_reps_label.setText(
+#                     f"All-fingers reps: {self.combo_reps}"
+#                 )
+
+#                 # Cycle emoji
+#                 emoji = self.emoji_cycle[self.emoji_index]
+#                 self.emoji_index = (self.emoji_index + 1) % len(self.emoji_cycle)
+#                 self.emoji_label.setText(emoji)
+
+#                 # Play success sound: cycle among rizz/wow/yay
+#                 if self.combo_success_sounds:
+#                     s = self.combo_success_sounds[self.combo_success_index]
+#                     self.combo_success_index = (
+#                         self.combo_success_index + 1
+#                     ) % len(self.combo_success_sounds)
+#                     self._play_sound(s)
+
+#                 # Reset combo timer for next rep
+#                 self.combo_hold_time = 0.0
+#                 self.combo_bar.setValue(0)
+#                 self.combo_countdown_label.setText("Great job! 🎉")
+
+#                 # Persist stats
+#                 self._save_stats()
+#         else:
+#             # If we *just* broke combo while counting, it's a fail
+#             if (
+#                 self.last_all_in_band
+#                 and self.timer.isActive()
+#                 and self.combo_hold_time > 0.0
+#             ):
+#                 # Play fail sound: cycle among oof/spongebob/bruh
+#                 if self.combo_fail_sounds:
+#                     s = self.combo_fail_sounds[self.combo_fail_index]
+#                     self.combo_fail_index = (
+#                         self.combo_fail_index + 1
+#                     ) % len(self.combo_fail_sounds)
+#                     self._play_sound(s)
+
+#             self.combo_hold_time = 0.0
+#             self.combo_bar.setValue(0)
+#             self.combo_countdown_label.setText("All-fingers hold: –")
+
+#         self.last_all_in_band = all_in_band
+
+#     # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
+#     def keyPressEvent(self, event):
+#         if self.backend is not None and hasattr(self.backend, "handle_char"):
+#             ch = event.text()
+#             if ch:
+#                 self.backend.handle_char(ch, True)
+#         super().keyPressEvent(event)
+
+#     def keyReleaseEvent(self, event):
+#         if self.backend is not None and hasattr(self.backend, "handle_char"):
+#             ch = event.text()
+#             if ch:
+#                 self.backend.handle_char(ch, False)
+#         super().keyReleaseEvent(event)
+#     # ==== END SIM BACKEND HOOK ====
+
+#     def _set_bar_color(self, bar: QProgressBar, color: str):
+#         palette = {
+#             "orange": "#FF9800",
+#             "orangeyellow": "#FFC107",
+#             "yellow": "#FFEB3B",
+#             "yellowgreen": "#CDDC39",
+#             "green": "#4CAF50",
+#             "darkgreen": "#2E7D32",
+#             "darkred": "#C62828",
+#             "red": "#F44336",
+#         }
+#         chunk_color = palette.get(color, "#FF9800")
+
+#         bar.setStyleSheet(
+#             "QProgressBar {"
+#             "  border: 1px solid #999;"
+#             "  border-radius: 3px;"
+#             "  background: #eee;"
+#             "}"
+#             f"QProgressBar::chunk {{ background-color: {chunk_color}; }}"
+#         )
+
+
+# def main():
+#     app = QApplication(sys.argv)
+#     win = PatientGameWindow()
+#     win.show()
+#     sys.exit(app.exec())
+
+
+# if __name__ == "__main__":
+#     main()
+
+
+#########===================== PATIENT GAME V6 ==============================##########
+
+# host/gui/patient_game_app.py
+
 import os
 import sys
 import json
@@ -2662,23 +3418,24 @@ class ThresholdProgressBar(QProgressBar):
 
 
 class PatientGameWindow(QWidget):
-    def __init__(self, backend: SerialBackend | None = None, owns_backend: bool = True):
+    def __init__(
+        self,
+        backend: SerialBackend | None = None,
+        owns_backend: bool = True,
+    ):
         super().__init__()
 
         self.setWindowTitle("Cardinal Grip – Patient Game Mode")
         self.resize(1100, 700)
 
-        # Shared-backend support
+        # ==== SIM BACKEND / KEYBOARD INPUT HOOK ====
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # ==== END SIM BACKEND HOOK ====
+
+        # --- Serial + data state ---
         self.backend: SerialBackend | None = backend
         self.owns_backend = owns_backend
         self.last_time = None  # for dt calculation in timer
-
-        # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
-        # Allow this window to receive key events so a simulated backend
-        # (e.g., SimBackend with keyboard control) can be driven directly.
-        # For real Serial/WiFi/Bluetooth backends, you can safely comment this out.
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # ==== END SIM BACKEND HOOK ====
 
         # One hold timer per channel (seconds spent continuously in band)
         self.hold_time = [0.0] * NUM_CHANNELS
@@ -2689,11 +3446,23 @@ class PatientGameWindow(QWidget):
         self.combo_reps = 0           # all-finger reps
         self.last_all_in_band = False
 
-        # Persistent reps per channel, loaded/saved from JSON
+        # Global stats (persistent across runs)
         self.reps_per_channel = [0] * NUM_CHANNELS
         self.sessions_completed = 0
         self.stats_path = os.path.join(PROJECT_ROOT, "data", "patient_stats.json")
         self._load_stats()
+
+        # Shared-session support (for dual launcher)
+        self.external_session_id: str | None = None
+
+        # --- Per-session logging (CSV + JSON) ---
+        self.logs_dir = os.path.join(PROJECT_ROOT, "data", "logs")
+        os.makedirs(self.logs_dir, exist_ok=True)
+        self.session_id: str | None = None
+        self.session_start_time: float | None = None  # monotonic for time_s
+        self.session_wall_start: datetime | None = None
+        self.session_times: list[float] = []                  # time_s
+        self.session_values: list[list[int]] = [[], [], [], []]  # one list per channel
 
         # Emoji sequence for success feedback
         self.emoji_cycle = ["👍", "👏", "🙌", "👌"]
@@ -2725,7 +3494,6 @@ class PatientGameWindow(QWidget):
         top_row = QHBoxLayout()
 
         top_row.addWidget(QLabel("Serial port:"))
-        # Default port; you can edit this in the GUI each run
         self.port_edit = QLineEdit("/dev/cu.usbmodem14101")
         self.port_edit.setFixedWidth(220)
         top_row.addWidget(self.port_edit)
@@ -2912,6 +3680,12 @@ class PatientGameWindow(QWidget):
         self.timer.setInterval(50)  # 20 Hz
         self.timer.timeout.connect(self.game_tick)
 
+    # ------------- SHARED SESSION ID (DUAL) -------------
+
+    def set_external_session_id(self, sid: str | None):
+        """Used by dual launcher to force a shared session_id."""
+        self.external_session_id = sid
+
     # ------------- AUDIO HELPERS -------------
 
     def _init_sounds(self):
@@ -2921,7 +3695,6 @@ class PatientGameWindow(QWidget):
         def make_sound(filename: str) -> QSoundEffect | None:
             path = os.path.join(audio_dir, filename)
             if not os.path.isfile(path):
-                # Don't crash if file is missing; just skip it.
                 return None
             s = QSoundEffect()
             s.setSource(QUrl.fromLocalFile(path))
@@ -2945,12 +3718,11 @@ class PatientGameWindow(QWidget):
         sound.stop()
         sound.play()
 
-    # ------------- STATS PERSISTENCE (JSON) -------------
+    # ------------- STATS PERSISTENCE (GLOBAL JSON) -------------
 
     def _load_stats(self):
         os.makedirs(os.path.join(PROJECT_ROOT, "data"), exist_ok=True)
         if not os.path.isfile(self.stats_path):
-            # default structure
             self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = 0
             self.combo_reps = 0
@@ -2964,7 +3736,6 @@ class PatientGameWindow(QWidget):
             self.sessions_completed = int(data.get("sessions_completed", 0))
             self.combo_reps = int(data.get("combo_reps", 0))
         except Exception:
-            # If corrupted, reset
             self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = 0
             self.combo_reps = 0
@@ -2980,7 +3751,6 @@ class PatientGameWindow(QWidget):
             with open(self.stats_path, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception:
-            # Don't crash GUI if writing fails
             pass
 
     def _total_reps_text(self):
@@ -3001,9 +3771,9 @@ class PatientGameWindow(QWidget):
     # ------------- CONNECTION / SESSION CONTROL -------------
 
     def handle_connect(self):
-        # If using a shared backend, don't reopen the port; just enable session.
+        # Shared backend provided by dual launcher
         if self.backend is not None and not self.owns_backend:
-            self.status_label.setText("Status: Using shared backend")
+            self.status_label.setText("Status: Connected (shared backend)")
             self.connect_button.setEnabled(False)
             self.disconnect_button.setEnabled(False)
             self.start_button.setEnabled(True)
@@ -3011,7 +3781,6 @@ class PatientGameWindow(QWidget):
 
         if self.backend is not None:
             return
-
         port = self.port_edit.text().strip()
         try:
             baud = int(self.baud_edit.text().strip())
@@ -3022,7 +3791,6 @@ class PatientGameWindow(QWidget):
         try:
             self.backend = SerialBackend(port=port, baud=baud, timeout=0.01)
             self.backend.start()
-            self.owns_backend = True
         except Exception as e:
             QMessageBox.critical(self, "Serial error", f"Failed to open {port}:\n{e}")
             self.backend = None
@@ -3039,18 +3807,12 @@ class PatientGameWindow(QWidget):
             self.backend.stop()
             self.backend = None
         self.status_label.setText("Status: Disconnected")
-        self.connect_button.setEnabled(True)
+        self.connect_button.setEnabled(self.owns_backend)
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
 
-        # Reset combo bar visuals
-        self.combo_hold_time = 0.0
-        self.combo_bar.setValue(0)
-        self.combo_countdown_label.setText("All-fingers hold: –")
-        self.last_all_in_band = False
-
     def start_session(self):
-        # Reset per-session hold timers ONLY (not reps)
+        # Reset per-session hold timers ONLY (not global reps)
         self.hold_time = [0.0] * NUM_CHANNELS
         self.in_band_prev = [False] * NUM_CHANNELS
         self.combo_hold_time = 0.0
@@ -3060,6 +3822,16 @@ class PatientGameWindow(QWidget):
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.emoji_label.setText("")
 
+        # Per-session logging buffers
+        if self.external_session_id:
+            self.session_id = self.external_session_id
+        else:
+            self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_start_time = time.time()
+        self.session_wall_start = datetime.now()
+        self.session_times = []
+        self.session_values = [[] for _ in range(NUM_CHANNELS)]
+
         self.timer.start()
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -3067,9 +3839,8 @@ class PatientGameWindow(QWidget):
             "Status: Session running – squeeze to hit the green zone!"
         )
 
-        # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
+        # For keyboard-driven sim backend
         self.setFocus()
-        # ==== END SIM BACKEND HOOK ====
 
     def stop_session(self):
         if self.timer.isActive():
@@ -3079,6 +3850,8 @@ class PatientGameWindow(QWidget):
             self.session_count_label.setText(
                 f"Sessions completed (game mode): {self.sessions_completed}"
             )
+            self._save_session_log()
+
         self.start_button.setEnabled(self.backend is not None)
         self.stop_button.setEnabled(False)
 
@@ -3087,6 +3860,104 @@ class PatientGameWindow(QWidget):
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.last_all_in_band = False
+
+        # Clear session state
+        self.session_start_time = None
+        self.session_wall_start = None
+        self.session_times = []
+        self.session_values = [[] for _ in range(NUM_CHANNELS)]
+        self.session_id = None
+
+    # ------------- PER-SESSION LOGGING (CSV + JSON) -------------
+
+    def _save_session_log(self):
+        """Save current session's time-series + summary to CSV and JSON."""
+        if (
+            self.session_id is None
+            or self.session_start_time is None
+            or not self.session_times
+        ):
+            return  # nothing to save
+
+        csv_name = f"game_session_{self.session_id}.csv"
+        json_name = f"game_session_{self.session_id}.json"
+        csv_path = os.path.join(self.logs_dir, csv_name)
+        json_path = os.path.join(self.logs_dir, json_name)
+
+        duration_s = self.session_times[-1] if self.session_times else 0.0
+        num_samples = len(self.session_times)
+        sample_rate = num_samples / duration_s if duration_s > 0 else None
+
+        tmin = self.target_min_slider.value()
+        tmax = self.target_max_slider.value()
+
+        channel_stats = []
+        for i in range(NUM_CHANNELS):
+            data = self.session_values[i]
+            if data:
+                avg = float(sum(data) / len(data))
+                vmin = int(min(data))
+                vmax = int(max(data))
+            else:
+                avg = 0.0
+                vmin = 0
+                vmax = 0
+            channel_stats.append(
+                {
+                    "index": i,
+                    "name": CHANNEL_NAMES[i],
+                    "mean_adc": avg,
+                    "min_adc": vmin,
+                    "max_adc": vmax,
+                }
+            )
+
+        # CSV
+        try:
+            import csv
+
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                header = ["time_s"] + [f"ch{i}_adc" for i in range(NUM_CHANNELS)]
+                writer.writerow(header)
+                for idx, t in enumerate(self.session_times):
+                    row = [t]
+                    for ch in range(NUM_CHANNELS):
+                        if idx < len(self.session_values[ch]):
+                            row.append(self.session_values[ch][idx])
+                        else:
+                            row.append(0)
+                    writer.writerow(row)
+        except Exception:
+            csv_path = None
+
+        # JSON metadata
+        meta = {
+            "session_id": self.session_id,
+            "app": "patient_game_app",
+            "start_timestamp": (
+                self.session_wall_start.isoformat()
+                if self.session_wall_start is not None
+                else None
+            ),
+            "end_timestamp": datetime.now().isoformat(),
+            "duration_s": duration_s,
+            "num_samples": num_samples,
+            "sample_rate_est_hz": sample_rate,
+            "thresholds": {"min_adc": tmin, "max_adc": tmax},
+            "channels": channel_stats,
+            "reps_per_channel": self.reps_per_channel,
+            "combo_reps": self.combo_reps,
+            "sessions_completed_global": self.sessions_completed,
+            "csv_path": csv_path,
+            "logs_dir": self.logs_dir,
+        }
+
+        try:
+            with open(json_path, "w") as jf:
+                json.dump(meta, jf, indent=2)
+        except Exception:
+            pass
 
     # ------------- GAME LOOP -------------
 
@@ -3117,18 +3988,19 @@ class PatientGameWindow(QWidget):
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
-        # Track which channels are in-band for combo logic
         in_band_flags = [False] * NUM_CHANNELS
+        sample_vals: list[int] = []
 
         for i in range(NUM_CHANNELS):
             val = int(vals[i])
             val = max(0, min(4095, val))
+            sample_vals.append(val)
 
             # Update bar & numeric text
             self.bar_widgets[i].setValue(val)
             self.value_labels[i].setText(f"Force: {val}")
 
-            # Determine zone and color (richer mapping)
+            # Determine zone and color (with darkred above tmax)
             if val < tmin:
                 zone = "low"
                 if tmin > 0:
@@ -3136,19 +4008,18 @@ class PatientGameWindow(QWidget):
                 else:
                     frac_below = 0.0
 
-                # Far below = orange, closer to threshold = orangeyellow -> yellow
-                if frac_below < 1 / 3:
+                # Far below = orange, closer to threshold = yellow
+                if frac_below < 0.5:
                     color = "orange"
-                elif frac_below < 2 / 3:
-                    color = "orangeyellow"
                 else:
                     color = "yellow"
 
             elif val > tmax:
                 zone = "high"
-                over_span = max(4095 - tmax, 1)
-                frac_above = (val - tmax) / over_span  # 0.0 just over → 1.0 far over
+                span_above = max(4095 - tmax, 1)
+                frac_above = (val - tmax) / span_above  # 0.0 just above → 1.0 at max ADC
 
+                # Slightly above = darkred, far above = red
                 if frac_above < 0.5:
                     color = "darkred"
                 else:
@@ -3170,11 +4041,11 @@ class PatientGameWindow(QWidget):
             in_band_flags[i] = (zone == "in_band")
             self._set_bar_color(self.bar_widgets[i], color)
 
-            # --- Single-finger target zone ENTER: play applepay_mono.wav ---
+            # Single-finger ENTER band sound
             if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
                 self._play_sound(self.sounds.get("applepay"))
 
-            # ---- Per-channel countdown logic ----
+            # Per-channel countdown logic
             if self.timer.isActive() and zone == "in_band":
                 self.hold_time[i] += dt
                 remaining = max(0.0, HOLD_SECONDS - self.hold_time[i])
@@ -3186,26 +4057,29 @@ class PatientGameWindow(QWidget):
                     self.rep_labels[i].setText(f"Reps: {self.reps_per_channel[i]}")
                     self.total_reps_label.setText(self._total_reps_text())
                     self.countdown_labels[i].setText("Nice! ✅")
-                    # Play duolingo_mono.wav on successful single-finger rep
                     self._play_sound(self.sounds.get("duolingo"))
 
-                    # Reset hold timer so they must do another full 5 s
+                    # Reset hold timer so they must do another full HOLD_SECONDS
                     self.hold_time[i] = 0.0
-                    # Save to disk on each successful rep
                     self._save_stats()
             else:
-                # Not in band or session not running → reset hold timer
                 self.hold_time[i] = 0.0
                 self.countdown_labels[i].setText("Hold: –")
 
-            # Update previous in-band state
             self.in_band_prev[i] = (zone == "in_band")
+
+        # Per-tick logging (relative time in seconds)
+        if self.session_start_time is not None:
+            t_rel = now - self.session_start_time
+            self.session_times.append(t_rel)
+            for ch in range(NUM_CHANNELS):
+                self.session_values[ch].append(sample_vals[ch])
 
         # ---- All-fingers combo logic ----
         all_in_band = self.timer.isActive() and all(in_band_flags)
 
         if all_in_band:
-            # Combo just started: play mario_mono.wav
+            # Combo just started
             if not self.last_all_in_band:
                 self._play_sound(self.sounds.get("mario"))
 
@@ -3227,12 +4101,11 @@ class PatientGameWindow(QWidget):
                     f"All-fingers reps: {self.combo_reps}"
                 )
 
-                # Cycle emoji
                 emoji = self.emoji_cycle[self.emoji_index]
                 self.emoji_index = (self.emoji_index + 1) % len(self.emoji_cycle)
                 self.emoji_label.setText(emoji)
 
-                # Play success sound: cycle among rizz/wow/yay
+                # Success sound cycle
                 if self.combo_success_sounds:
                     s = self.combo_success_sounds[self.combo_success_index]
                     self.combo_success_index = (
@@ -3240,21 +4113,19 @@ class PatientGameWindow(QWidget):
                     ) % len(self.combo_success_sounds)
                     self._play_sound(s)
 
-                # Reset combo timer for next rep
+                # Reset combo timer
                 self.combo_hold_time = 0.0
                 self.combo_bar.setValue(0)
                 self.combo_countdown_label.setText("Great job! 🎉")
 
-                # Persist stats
                 self._save_stats()
         else:
-            # If we *just* broke combo while counting, it's a fail
+            # Just broke combo → fail sound
             if (
                 self.last_all_in_band
                 and self.timer.isActive()
                 and self.combo_hold_time > 0.0
             ):
-                # Play fail sound: cycle among oof/spongebob/bruh
                 if self.combo_fail_sounds:
                     s = self.combo_fail_sounds[self.combo_fail_index]
                     self.combo_fail_index = (
@@ -3268,7 +4139,7 @@ class PatientGameWindow(QWidget):
 
         self.last_all_in_band = all_in_band
 
-    # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
+    # ==== SIM BACKEND / KEYBOARD INPUT HOOK ====
     def keyPressEvent(self, event):
         if self.backend is not None and hasattr(self.backend, "handle_char"):
             ch = event.text()
@@ -3287,12 +4158,11 @@ class PatientGameWindow(QWidget):
     def _set_bar_color(self, bar: QProgressBar, color: str):
         palette = {
             "orange": "#FF9800",
-            "orangeyellow": "#FFC107",
             "yellow": "#FFEB3B",
             "yellowgreen": "#CDDC39",
             "green": "#4CAF50",
             "darkgreen": "#2E7D32",
-            "darkred": "#C62828",
+            "darkred": "#B71C1C",
             "red": "#F44336",
         }
         chunk_color = palette.get(color, "#FF9800")
@@ -3316,3 +4186,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#########===================== PATIENT GAME V7 ==============================##########
