@@ -1,7 +1,21 @@
-# host/gui/patient_dual_launcher.py #version 7
+# host/gui/patient_dual_launcher.py  #version 7
+
+"""
+Dual view launcher:
+  - Left:  PatientGameWindow (game mode)
+  - Right: PatientWindow     (monitor / graph)
+
+Design:
+  * PatientGameWindow owns the backend and handles connect()/disconnect().
+  * Dual view reuses that backend for PatientWindow (monitor).
+  * ONE shared Min/Max ADC slider pair lives in the dual view and
+    drives both child windows' thresholds + visuals.
+"""
 
 import os
 import sys
+import time
+from datetime import datetime
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -12,9 +26,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QLineEdit,
+    QGroupBox,
+    QSlider,
 )
 
-# ---------- PATH SETUP ----------
+# ------------ PATH SETUP (same pattern as other GUIs) ------------
 GUI_DIR = os.path.dirname(__file__)          # .../host/gui
 HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
 PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
@@ -22,323 +38,358 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# Import the two GUIs from the same folder
-from patient_game_app import PatientGameWindow
-from patient_app import PatientWindow
-
-# Use the same backend type both apps expect
-from comms.sim_backend import SimBackend as SerialBackend  # swap to real serial if needed
+# Import the existing GUIs (they already choose SimBackend vs SerialBackend)
+from host.gui.patient_game_app import PatientGameWindow
+from host.gui.patient_app import PatientWindow
 
 
 class DualPatientGameWindow(QWidget):
     """
-    Side-by-side view embedding:
-      - Left:  PatientGameWindow
-      - Right: PatientWindow
+    Embeds:
+      - Left:  PatientGameWindow  (game mode)
+      - Right: PatientWindow      (monitor + graph)
 
-    Features:
-      - Shared SerialBackend for both (one connection).
-      - Top-level Connect/Disconnect/Start/Stop controls.
-      - Min/Max ADC sliders stay in sync between both windows.
-      - Global invariant: Min <= Max always.
+    Game window owns backend; dual view:
+      * drives global connect / disconnect / start / stop
+      * exposes one shared Min/Max ADC slider pair
+      * pushes thresholds into both child windows.
     """
 
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Cardinal Grip – Dual Patient View (Shared Backend)")
-        self.resize(1500, 850)
+        self.resize(1200, 750)
+        self.setMinimumSize(1100, 700)
 
-        self.backend: SerialBackend | None = None
-        self._current_min = None
-        self._current_max = None
+        self.shared_backend = None
+        self.current_session_id: str | None = None
 
+        # ---------- TOP-LEVEL LAYOUT ----------
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
 
-        # ===== TOP: Shared connection + thresholds info =====
-        top_row = QHBoxLayout()
-        main_layout.addLayout(top_row)
-
-        caption = QLabel(
+        # ===== HEADER TEXT =====
+        header = QLabel(
             "Dual view – shared backend:\n"
             "Left: Patient Game | Right: Patient Monitor.\n"
             "Use these controls for connection/session (individual connect buttons are disabled)."
         )
-        caption.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        caption.setStyleSheet("font-weight: bold; padding: 4px;")
-        top_row.addWidget(caption, stretch=2)
+        header.setStyleSheet("font-weight: bold;")
+        main_layout.addWidget(header)
 
-        # Shared serial controls
+        # ===== SHARED CONNECTION BAR =====
+        shared_bar = QHBoxLayout()
+
+        shared_bar.addWidget(QLabel("Port:"))
         self.port_edit = QLineEdit("/dev/cu.usbmodem14101")
         self.port_edit.setFixedWidth(220)
-        top_row.addWidget(QLabel("Port:"))
-        top_row.addWidget(self.port_edit)
+        shared_bar.addWidget(self.port_edit)
 
+        shared_bar.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
         self.baud_edit.setFixedWidth(80)
-        top_row.addWidget(QLabel("Baud:"))
-        top_row.addWidget(self.baud_edit)
+        shared_bar.addWidget(self.baud_edit)
 
         self.connect_button = QPushButton("Connect (shared)")
-        self.connect_button.clicked.connect(self.handle_connect)
-        top_row.addWidget(self.connect_button)
+        self.connect_button.clicked.connect(self.handle_shared_connect)
+        shared_bar.addWidget(self.connect_button)
 
         self.disconnect_button = QPushButton("Disconnect")
-        self.disconnect_button.clicked.connect(self.handle_disconnect)
+        self.disconnect_button.clicked.connect(self.handle_shared_disconnect)
         self.disconnect_button.setEnabled(False)
-        top_row.addWidget(self.disconnect_button)
+        shared_bar.addWidget(self.disconnect_button)
 
         self.start_button = QPushButton("Start Session")
         self.start_button.clicked.connect(self.handle_start_session)
         self.start_button.setEnabled(False)
-        top_row.addWidget(self.start_button)
+        shared_bar.addWidget(self.start_button)
 
         self.stop_button = QPushButton("Stop Session")
         self.stop_button.clicked.connect(self.handle_stop_session)
         self.stop_button.setEnabled(False)
-        top_row.addWidget(self.stop_button)
+        shared_bar.addWidget(self.stop_button)
 
-        # ===== CENTER: embedded game + patient windows =====
+        shared_bar.addStretch(1)
+        main_layout.addLayout(shared_bar)
+
+        # ===== SHARED TARGET ZONE CONTROLS (ONE PAIR OF SLIDERS) =====
+        band_group = QGroupBox("Shared Target Zone (applies to ALL fingers in BOTH views)")
+        band_layout = QHBoxLayout()
+        band_group.setLayout(band_layout)
+
+        # Min slider + numeric label
+        band_layout.addWidget(QLabel("Min (ADC):"))
+        self.shared_min_slider = QSlider(Qt.Orientation.Horizontal)
+        self.shared_min_slider.setRange(0, 4095)
+        self.shared_min_slider.setValue(1200)
+        self.shared_min_slider.setMinimumWidth(260)
+        band_layout.addWidget(self.shared_min_slider)
+
+        self.shared_min_label = QLabel("1200")
+        self.shared_min_label.setFixedWidth(60)
+        self.shared_min_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        band_layout.addWidget(self.shared_min_label)
+
+        # Max slider + numeric label
+        band_layout.addWidget(QLabel("Max (ADC):"))
+        self.shared_max_slider = QSlider(Qt.Orientation.Horizontal)
+        self.shared_max_slider.setRange(0, 4095)
+        self.shared_max_slider.setValue(2000)
+        self.shared_max_slider.setMinimumWidth(260)
+        band_layout.addWidget(self.shared_max_slider)
+
+        self.shared_max_label = QLabel("2000")
+        self.shared_max_label.setFixedWidth(60)
+        self.shared_max_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        band_layout.addWidget(self.shared_max_label)
+
+        band_hint = QLabel("Stay in the green zone for 5 s to earn a rep (game view).")
+        band_layout.addWidget(band_hint)
+
+        main_layout.addWidget(band_group)
+
+        # ===== STATUS LINE =====
+        self.status_label = QLabel("Status: Not connected")
+        self.status_label.setStyleSheet("font-weight: bold;")
+        main_layout.addWidget(self.status_label)
+
+        # ===== CENTER: TWO CHILD WINDOWS SIDE-BY-SIDE =====
         center_row = QHBoxLayout()
         main_layout.addLayout(center_row, stretch=1)
 
+        # ----- Left group: Patient Game -----
+        left_group = QGroupBox("Patient Game View")
+        left_layout = QVBoxLayout()
+        left_group.setLayout(left_layout)
+
         self.game_window = PatientGameWindow()
+        self.game_window.setParent(self)
+
+        # Hide local connection/session controls: dual view owns them
+        self.game_window.connect_button.hide()
+        self.game_window.disconnect_button.hide()
+        self.game_window.start_button.hide()
+        self.game_window.stop_button.hide()
+
+        # Hide the game window's own Min/Max sliders; they are driven by shared ones
+        try:
+            self.game_window.target_min_slider.hide()
+            self.game_window.target_max_slider.hide()
+            # optional numeric labels if present
+            if hasattr(self.game_window, "target_min_value_label"):
+                self.game_window.target_min_value_label.hide()
+            if hasattr(self.game_window, "target_max_value_label"):
+                self.game_window.target_max_value_label.hide()
+        except Exception:
+            pass
+
+        left_layout.addWidget(self.game_window)
+        center_row.addWidget(left_group, stretch=1)
+
+        # ----- Right group: Patient Monitor -----
+        right_group = QGroupBox("Patient Monitor View")
+        right_layout = QVBoxLayout()
+        right_group.setLayout(right_layout)
+
         self.patient_window = PatientWindow()
+        self.patient_window.setParent(self)
 
-        # Embed as child widgets
-        center_row.addWidget(self.game_window, stretch=1)
-        center_row.addWidget(self.patient_window, stretch=1)
+        self.patient_window.connect_button.hide()
+        self.patient_window.disconnect_button.hide()
 
-        # Disable individual connect buttons (we manage shared backend)
-        self._disable_internal_connect_controls()
+        # Hide the patient window's own Min/Max sliders; driven by shared ones
+        try:
+            self.patient_window.target_min_slider.hide()
+            self.patient_window.target_max_slider.hide()
+        except Exception:
+            pass
 
-        # Threshold sync wiring (Min/Max sliders)
-        self._wire_threshold_sync()
+        right_layout.addWidget(self.patient_window)
+        center_row.addWidget(right_group, stretch=1)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-    def _disable_internal_connect_controls(self):
-        """Disable the built-in connect/disconnect in the embedded windows."""
-        for w in (self.game_window, self.patient_window):
-            if hasattr(w, "connect_button"):
-                w.connect_button.setEnabled(False)
-            if hasattr(w, "disconnect_button"):
-                w.disconnect_button.setEnabled(False)
+        # Now that children exist, initialize them from shared sliders
+        self._push_shared_thresholds_to_children()
 
-    def _wire_threshold_sync(self):
-        """
-        Keep Min / Max ADC thresholds synced between both views.
-        Uses a global state (self._current_min/_current_max) to enforce Min <= Max.
-        """
+        # Wire shared slider callbacks
+        self.shared_min_slider.valueChanged.connect(self._on_shared_min_changed)
+        self.shared_max_slider.valueChanged.connect(self._on_shared_max_changed)
 
-        gw = self.game_window
-        pw = self.patient_window
+        # ===== BOTTOM: SESSION INFO =====
+        bottom_row = QHBoxLayout()
+        self.session_label = QLabel("Current session: –")
+        bottom_row.addWidget(self.session_label)
+        bottom_row.addStretch(1)
+        main_layout.addLayout(bottom_row)
 
-        have_game_min = hasattr(gw, "target_min_slider")
-        have_game_max = hasattr(gw, "target_max_slider")
-        have_patient_min = hasattr(pw, "target_min_slider")
-        have_patient_max = hasattr(pw, "target_max_slider")
+    # ---------- SHARED THRESHOLD HELPERS ----------
 
-        if not (have_game_min and have_game_max and have_patient_min and have_patient_max):
-            return
+    def _push_shared_thresholds_to_children(self):
+        """Push shared Min/Max slider values into both child windows + visuals."""
+        tmin = self.shared_min_slider.value()
+        tmax = self.shared_max_slider.value()
 
-        # Initialize global min/max from game window
-        self._current_min = gw.target_min_slider.value()
-        self._current_max = gw.target_max_slider.value()
-        if self._current_max < self._current_min:
-            self._current_max = self._current_min
-            gw.target_max_slider.setValue(self._current_max)
+        # update labels
+        self.shared_min_label.setText(str(tmin))
+        self.shared_max_label.setText(str(tmax))
 
-        # Push to patient window as initial sync
-        self._set_sliders_without_feedback(self._current_min, self._current_max)
+        # Game window thresholds
+        try:
+            self.game_window.target_min_slider.blockSignals(True)
+            self.game_window.target_max_slider.blockSignals(True)
+            self.game_window.target_min_slider.setValue(tmin)
+            self.game_window.target_max_slider.setValue(tmax)
+            self.game_window.target_min_slider.blockSignals(False)
+            self.game_window.target_max_slider.blockSignals(False)
+            if hasattr(self.game_window, "_update_band_labels"):
+                self.game_window._update_band_labels()
+        except Exception:
+            pass
 
-        # Hook BOTH directions
-        gw.target_min_slider.valueChanged.connect(
-            lambda v: self._on_slider_changed(v, source="game_min")
-        )
-        gw.target_max_slider.valueChanged.connect(
-            lambda v: self._on_slider_changed(v, source="game_max")
-        )
+        # Patient window thresholds
+        try:
+            self.patient_window.target_min_slider.blockSignals(True)
+            self.patient_window.target_max_slider.blockSignals(True)
+            self.patient_window.target_min_slider.setValue(tmin)
+            self.patient_window.target_max_slider.setValue(tmax)
+            self.patient_window.target_min_slider.blockSignals(False)
+            self.patient_window.target_max_slider.blockSignals(False)
+            if hasattr(self.patient_window, "_update_band_visuals"):
+                self.patient_window._update_band_visuals()
+        except Exception:
+            pass
 
-        pw.target_min_slider.valueChanged.connect(
-            lambda v: self._on_slider_changed(v, source="patient_min")
-        )
-        pw.target_max_slider.valueChanged.connect(
-            lambda v: self._on_slider_changed(v, source="patient_max")
-        )
-
-        # Let game window update its dashed thresholds once
-        updater = getattr(gw, "_update_band_labels", None)
-        if callable(updater):
-            updater()
-
-    def _on_slider_changed(self, value: int, source: str):
-        """
-        Handle min/max moves from either window, enforce Min <= Max,
-        and push the final pair of values back to both windows.
-        """
-        if self._current_min is None or self._current_max is None:
-            # Should not happen, but guard anyway.
-            self._current_min = value
-            self._current_max = value
-
-        # Update global state
-        if "min" in source:
-            self._current_min = value
-        else:
-            self._current_max = value
-
+    def _on_shared_min_changed(self, value: int):
         # Enforce Min <= Max
-        if self._current_max < self._current_min:
-            if "min" in source:
-                self._current_max = self._current_min
-            else:
-                self._current_min = self._current_max
+        if value > self.shared_max_slider.value():
+            self.shared_max_slider.blockSignals(True)
+            self.shared_max_slider.setValue(value)
+            self.shared_max_slider.blockSignals(False)
+        self._push_shared_thresholds_to_children()
 
-        # Apply back to both windows without re-triggering signals
-        self._set_sliders_without_feedback(self._current_min, self._current_max)
+    def _on_shared_max_changed(self, value: int):
+        # Enforce Min <= Max
+        if value < self.shared_min_slider.value():
+            self.shared_min_slider.blockSignals(True)
+            self.shared_min_slider.setValue(value)
+            self.shared_min_slider.blockSignals(False)
+        self._push_shared_thresholds_to_children()
 
-        # Ask game window to refresh dashed lines & numeric labels if available
-        updater = getattr(self.game_window, "_update_band_labels", None)
-        if callable(updater):
-            updater()
+    # ---------- SHARED CONNECTION HANDLERS ----------
 
-        # If patient window later gets its own band-label helper, call it too
-        updater_p = getattr(self.patient_window, "_update_band_labels", None)
-        if callable(updater_p):
-            updater_p()
-
-    def _set_sliders_without_feedback(self, tmin: int, tmax: int):
-        """Set both windows' sliders while blocking valueChanged signals."""
-        gw = self.game_window
-        pw = self.patient_window
-
-        for w, kind in ((gw, "game"), (pw, "patient")):
-            if hasattr(w, "target_min_slider") and hasattr(w, "target_max_slider"):
-                # Min
-                smin = w.target_min_slider
-                old1 = smin.blockSignals(True)
-                smin.setValue(tmin)
-                smin.blockSignals(old1)
-
-                # Max
-                smax = w.target_max_slider
-                old2 = smax.blockSignals(True)
-                smax.setValue(tmax)
-                smax.blockSignals(old2)
-
-    # ------------------------------------------------------------------
-    # Shared connection / session control
-    # ------------------------------------------------------------------
-    def handle_connect(self):
-        """Create a single backend and assign it to both embedded windows."""
-        if self.backend is not None:
-            return
-
-        port = self.port_edit.text().strip()
-        try:
-            baud = int(self.baud_edit.text().strip())
-        except ValueError:
-            # Fall back to 115200
-            baud = 115200
-            self.baud_edit.setText("115200")
-
-        try:
-            self.backend = SerialBackend(port=port, baud=baud, timeout=0.01)
-            self.backend.start()
-        except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Serial error", f"Failed to open {port}:\n{e}")
-            self.backend = None
-            return
-
-        # Inject shared backend into both windows
-        self.game_window.backend = self.backend
-        self.patient_window.backend = self.backend
-
-        # Update their status labels and buttons
-        if hasattr(self.game_window, "status_label"):
-            self.game_window.status_label.setText(f"Status: Connected (shared) {port} @ {baud}")
-        if hasattr(self.patient_window, "status_label"):
-            self.patient_window.status_label.setText(f"Status: Connected (shared) {port} @ {baud}")
-
-        # Dual-level controls
-        self.connect_button.setEnabled(False)
-        self.disconnect_button.setEnabled(True)
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-
-    def handle_disconnect(self):
-        """Stop session in both windows and tear down shared backend."""
-        # Stop sessions first
-        self.handle_stop_session()
-
-        if self.backend is not None:
-            try:
-                self.backend.stop()
-            except Exception:
-                pass
-            self.backend = None
-
-        # Reset both windows
-        if hasattr(self.game_window, "backend"):
-            self.game_window.backend = None
-        if hasattr(self.patient_window, "backend"):
-            self.patient_window.backend = None
-
-        if hasattr(self.game_window, "status_label"):
-            self.game_window.status_label.setText("Status: Disconnected")
-        if hasattr(self.patient_window, "status_label"):
-            self.patient_window.status_label.setText("Status: Disconnected")
-
-        self.connect_button.setEnabled(True)
-        self.disconnect_button.setEnabled(False)
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(False)
-
-    def handle_start_session(self):
+    def handle_shared_connect(self):
         """
-        Start a session:
-          - Game side: call its start_session()
-          - Patient side: reset session + start its timer
-        (Backend must already be connected.)
+        Let the game window perform its normal connect()
+        and then share its backend with the patient monitor.
         """
-        if self.backend is None:
+        if self.shared_backend is not None:
             return
 
-        # Game side
-        if hasattr(self.game_window, "start_session"):
-            self.game_window.start_session()
+        # Push our port/baud into the game window fields, then call its connect.
+        self.game_window.port_edit.setText(self.port_edit.text())
+        self.game_window.baud_edit.setText(self.baud_edit.text())
 
-        # Patient side: mimic what its handle_connect does regarding timer
+        if hasattr(self.game_window, "handle_connect"):
+            self.game_window.handle_connect()
+
+        backend = getattr(self.game_window, "backend", None)
+        if backend is None:
+            self.status_label.setText("Status: Failed to connect (see game view).")
+            return
+
+        self.shared_backend = backend
+
+        # Share backend with patient monitor
+        self.patient_window.backend = backend
         if hasattr(self.patient_window, "reset_session"):
             self.patient_window.reset_session()
         if hasattr(self.patient_window, "timer"):
+            if hasattr(self.patient_window, "start_time"):
+                self.patient_window.start_time = time.time()
             self.patient_window.timer.start()
-        if hasattr(self.patient_window, "status_label"):
-            self.patient_window.status_label.setText("Status: Monitoring (shared backend)")
 
+        self.status_label.setText(
+            f"Status: Connected to {self.port_edit.text().strip()} @ "
+            f"{self.baud_edit.text().strip()}"
+        )
+        self.connect_button.setEnabled(False)
+        self.disconnect_button.setEnabled(True)
+        self.start_button.setEnabled(True)
+
+    def handle_shared_disconnect(self):
+        """Stop session and disconnect both child windows."""
+        self.handle_stop_session()
+
+        if hasattr(self.game_window, "handle_disconnect"):
+            self.game_window.handle_disconnect()
+        if hasattr(self.patient_window, "handle_disconnect"):
+            self.patient_window.handle_disconnect()
+
+        self.shared_backend = None
+        self.status_label.setText("Status: Disconnected")
+        self.connect_button.setEnabled(True)
+        self.disconnect_button.setEnabled(False)
+        self.start_button.setEnabled(False)
+
+    # ---------- SESSION CONTROL + OPTIONAL JSON LOGGING ----------
+
+    def _make_new_session_id(self) -> str:
+        return datetime.now().strftime("session_%Y%m%d_%H%M%S")
+
+    def handle_start_session(self):
+        if self.shared_backend is None:
+            self.status_label.setText("Status: Cannot start – not connected.")
+            return
+
+        if hasattr(self.game_window, "start_session"):
+            self.game_window.start_session()
+
+        if hasattr(self.patient_window, "reset_session"):
+            self.patient_window.reset_session()
+
+        sid = self._make_new_session_id()
+        self.current_session_id = sid
+        self.session_label.setText(f"Current session: {sid}")
+
+        if hasattr(self.game_window, "set_external_session_id"):
+            self.game_window.set_external_session_id(sid)
+        if hasattr(self.patient_window, "set_external_session_id"):
+            self.patient_window.set_external_session_id(sid)
+
+        if hasattr(self.game_window, "begin_session_logging"):
+            self.game_window.begin_session_logging(sid, source="dual_view")
+        if hasattr(self.patient_window, "begin_session_logging"):
+            self.patient_window.begin_session_logging(sid, source="dual_view")
+
+        self.status_label.setText(
+            "Status: Session running (shared backend; shared target zone)."
+        )
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
     def handle_stop_session(self):
-        """
-        Stop a session on both views but keep the backend alive.
-        """
-        # Game side
         if hasattr(self.game_window, "stop_session"):
             self.game_window.stop_session()
 
-        # Patient side
-        if hasattr(self.patient_window, "timer") and self.patient_window.timer.isActive():
-            self.patient_window.timer.stop()
-        if hasattr(self.patient_window, "status_label") and self.backend is not None:
-            self.patient_window.status_label.setText("Status: Connected (idle)")
+        if hasattr(self.patient_window, "end_session_logging"):
+            self.patient_window.end_session_logging()
+        if hasattr(self.game_window, "end_session_logging"):
+            self.game_window.end_session_logging()
 
-        self.start_button.setEnabled(self.backend is not None)
         self.stop_button.setEnabled(False)
+        self.start_button.setEnabled(self.shared_backend is not None)
+        self.status_label.setText("Status: Session stopped")
+        self.session_label.setText("Current session: –")
+        self.current_session_id = None
+
+    # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) ----------
+
+    def keyPressEvent(self, event):
+        """Forward key events to the game window so SimBackend keyboard control works."""
+        self.game_window.keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        self.game_window.keyReleaseEvent(event)
 
 
 def main():
