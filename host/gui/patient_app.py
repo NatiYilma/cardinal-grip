@@ -43,7 +43,7 @@ from comms.sim_backend import SimBackend as SerialBackend  # simulated FSR + key
 # ================================================================
 
 NUM_CHANNELS = 4
-CHANNEL_NAMES = ["Index", "Middle", "Ring", "Pinky"]
+CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digitus Minimus"]
 
 
 class PatientWindow(QWidget):
@@ -370,9 +370,9 @@ class PatientWindow(QWidget):
             if zone == "in":
                 sym = "✅"
             elif zone == "low":
-                sym = "⬇️"
-            else:
                 sym = "⬆️"
+            else:
+                sym = "⬇️"
             parts.append(f"{name}:{sym}")
         self.status_label.setText("Status: " + "  ".join(parts))
 
