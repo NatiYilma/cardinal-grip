@@ -1,5 +1,9 @@
 # host/gui/dashboard_calendar.py
 
+"""
+Dashboard calendar file gets information from /data/sessions_log.json
+"""
+
 import os
 import sys
 import json

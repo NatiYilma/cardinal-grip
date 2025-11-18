@@ -1,120 +1,100 @@
 [
   {
-    "id": "session_20251117_212917",
-    "timestamp": "2025-11-17T21:29:17",
+    "id": "session_20251110_101500",
+    "timestamp": "2025-11-10T10:15:00",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [
-      121,
-      121,
-      121,
-      120
-    ],
-    "combo_reps": 109,
-    "fingers_used": 4,
-    "total_reps": 483,
+    "reps_per_channel": [1, 0, 0, 0],
+    "combo_reps": 0,
+    "fingers_used": 1,
+    "total_reps": 1,
     "csv_path": null
   },
   {
-    "id": "session_20251117_212919",
-    "timestamp": "2025-11-17T21:29:19",
+    "id": "session_20251111_110900",
+    "timestamp": "2025-11-11T11:09:00",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [
-      121,
-      121,
-      121,
-      120
-    ],
-    "combo_reps": 109,
-    "fingers_used": 4,
-    "total_reps": 483,
+    "reps_per_channel": [2, 2, 0, 0],
+    "combo_reps": 0,
+    "fingers_used": 2,
+    "total_reps": 4,
     "csv_path": null
   },
   {
-    "id": "session_20251117_223100",
-    "timestamp": "2025-11-17T22:31:00",
+    "id": "session_20251112_084200",
+    "timestamp": "2025-11-12T08:42:00",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [
-      121,
-      121,
-      121,
-      120
-    ],
-    "combo_reps": 109,
-    "fingers_used": 4,
-    "total_reps": 483,
+    "reps_per_channel": [3, 3, 3, 0],
+    "combo_reps": 0,
+    "fingers_used": 3,
+    "total_reps": 9,
     "csv_path": null
   },
   {
-    "id": "session_20251117_223103",
-    "timestamp": "2025-11-17T22:31:03",
+    "id": "session_20251113_154530",
+    "timestamp": "2025-11-13T15:45:30",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [
-      121,
-      121,
-      121,
-      120
-    ],
-    "combo_reps": 109,
+    "reps_per_channel": [2, 2, 2, 2],
+    "combo_reps": 0,
     "fingers_used": 4,
-    "total_reps": 483,
+    "total_reps": 8,
     "csv_path": null
   },
   {
-    "id": "game_20251117_224415",
-    "timestamp": "2025-11-17T22:44:39",
+    "id": "session_20251114_092215",
+    "timestamp": "2025-11-14T09:22:15",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [4, 4, 4, 4],
+    "combo_reps": 1,
+    "fingers_used": 4,
+    "total_reps": 16,
+    "csv_path": null
+  },  
+  {
+    "id": "game_20251117_231431",
+    "timestamp": "2025-11-17T23:15:00",
     "mode": "game",
     "source": "patient_game_app",
     "reps_per_channel": [
-      122,
-      122,
-      122,
-      121
+      1,
+      0,
+      0,
+      0
     ],
-    "combo_reps": 110,
-    "fingers_used": 4,
-    "total_reps": 487,
+    "combo_reps": 0,
+    "fingers_used": 1,
+    "total_reps": 1,
     "csv_path": null
   },
   {
-    "id": "session_20251117_224656",
-    "timestamp": "2025-11-17T22:46:56",
+    "id": "session_20251117_231623",
+    "timestamp": "2025-11-17T23:16:23",
     "mode": "monitor",
     "source": "patient_app",
     "reps_per_channel": [],
     "combo_reps": 0,
     "fingers_used": 0,
     "total_reps": 0,
-    "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251117_224651.csv"
+    "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251117_231612.csv"
   },
   {
-    "id": "game_20251117_224707",
-    "timestamp": "2025-11-17T22:47:51",
+    "id": "game_20251118_001247",
+    "timestamp": "2025-11-18T00:14:12",
     "mode": "game",
     "source": "patient_game_app",
     "reps_per_channel": [
-      124,
-      124,
-      124,
-      123
+      2,
+      2,
+      2,
+      0
     ],
-    "combo_reps": 112,
-    "fingers_used": 4,
-    "total_reps": 495,
-    "csv_path": null
-  },
-  {
-    "id": "session_20251117_224759",
-    "timestamp": "2025-11-17T22:47:59",
-    "mode": "monitor",
-    "source": "patient_app",
-    "reps_per_channel": [],
     "combo_reps": 0,
-    "fingers_used": 0,
-    "total_reps": 0,
-    "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251117_224754.csv"
+    "fingers_used": 3,
+    "total_reps": 6,
+    "csv_path": null
   }
 ]
