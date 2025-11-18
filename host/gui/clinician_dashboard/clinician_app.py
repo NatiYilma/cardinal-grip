@@ -43,7 +43,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 NUM_CHANNELS = 4
-CHANNEL_NAMES = ["Index", "Middle", "Ring", "Pinky"]
+CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digitus Minimus"]
 
 
 class ClinicianWindow(QWidget):

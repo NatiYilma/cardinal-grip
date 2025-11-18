@@ -30,17 +30,19 @@ from PyQt6.QtWidgets import (
     QSlider,
 )
 
-# ------------ PATH SETUP (same pattern as other GUIs) ------------
-GUI_DIR = os.path.dirname(__file__)          # .../host/gui
+# ------------ PATH SETUP  ------------
+# This file is .../cardinal-grip/host/gui/patient_app.py
+PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
+GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
 HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
+PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 # Import the existing GUIs (they already choose SimBackend vs SerialBackend)
-from host.gui.patient_game_app import PatientGameWindow
-from host.gui.patient_app import PatientWindow
+from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
+from host.gui.patient_dashboard.patient_app import PatientWindow
 
 
 class DualPatientGameWindow(QWidget):
