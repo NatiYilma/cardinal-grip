@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 # ------------ PATH SETUP  ------------
-# This file is .../cardinal-grip/host/gui/patient_app.py
+# This file is .../cardinal-grip/host/gui/patient_dashboard/patient_dual_launcher.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
 HOST_DIR = os.path.dirname(GUI_DIR)          # .../host

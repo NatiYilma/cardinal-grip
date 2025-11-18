@@ -26,7 +26,7 @@ from PyQt6.QtGui import QFont
 import pyqtgraph as pg
 
 # ------------ PATH SETUP ------------
-# This file is .../cardinal-grip/host/gui/patient_app.py
+# This file is .../cardinal-grip/host/gui/patient_dashboard/patient_app.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
 HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
@@ -34,6 +34,9 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
+
+# This is for JSON DB logging sessions
+from host.gui.session_logging import log_session_completion
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
 # For real ESP32-S3 over serial, use:
@@ -443,9 +446,20 @@ class PatientWindow(QWidget):
                     writer.writerow(row)
 
             QMessageBox.information(self, "Saved", f"Session saved to:\n{path}")
+            # --- Log this monitor session in JSON + SQLite (no per-finger reps) ---
+            try:
+                log_session_completion(
+                    mode="monitor",
+                    source="patient_app",
+                    reps_per_channel=None,  # we don't count reps here
+                    combo_reps=0,
+                    csv_path=path,
+                )
+            except Exception:
+                pass
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save CSV:\n{e}")
-
+        
 
 def main():
     app = QApplication(sys.argv)

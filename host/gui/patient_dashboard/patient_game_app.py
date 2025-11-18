@@ -24,7 +24,7 @@ from PyQt6.QtGui import QFont, QPainter, QPen, QColor
 from PyQt6.QtMultimedia import QSoundEffect
 
 # -------- PATH SETUP --------
-# This file is .../cardinal-grip/host/gui/patient_game_app.py
+# This file is .../cardinal-grip/host/gui/patient_dashboard/patient_game_app.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
 HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
@@ -33,6 +33,10 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+# This is for JSON DB logging sessions
+from host.gui.session_logging import log_session_completion
+
+# This is Backend data from hardware
 # from comms.serial_backend import SerialBackend  # real ESP32
 from comms.sim_backend import SimBackend as SerialBackend  # simulated backend
 
@@ -113,6 +117,9 @@ class PatientGameWindow(QWidget):
         self.combo_hold_time = 0.0
         self.combo_reps = 0
         self.last_all_in_band = False
+
+        # Logging session
+        self.session_start_time: float | None = None
 
         # Persistent stats
         self.reps_per_channel = [0] * NUM_CHANNELS
@@ -456,6 +463,8 @@ class PatientGameWindow(QWidget):
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.emoji_label.setText("")
+        
+        self.session_start_time = time.time()
 
         self.timer.start()
         self.start_button.setEnabled(False)
@@ -481,6 +490,24 @@ class PatientGameWindow(QWidget):
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.last_all_in_band = False
+
+        # ---- Log this session to JSON + SQLite for dashboards ----
+        try:
+            # Use wall-clock datetime; duration is implicit from data if needed
+            ts = datetime.now()
+            log_session_completion(
+                mode="game",
+                source="patient_game_app",
+                reps_per_channel=self.reps_per_channel,
+                combo_reps=self.combo_reps,
+                csv_path=None,
+                timestamp=ts,
+                session_id=None,  # auto-generate
+            )
+        except Exception:
+            # Don't crash the GUI if logging fails
+            pass
+
 
     # -------- Game loop --------
 
