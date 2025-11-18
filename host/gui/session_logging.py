@@ -38,6 +38,7 @@ def _save_sessions_json(sessions):
         with open(SESSIONS_JSON_PATH, "w") as f:
             json.dump(sessions, f, indent=2)
     except Exception:
+        # logging failure should not crash the app
         pass
 
 
@@ -69,7 +70,7 @@ def _ensure_db():
         conn.close()
 
 
-def _insert_into_db(session_dict):
+def _insert_into_db(session_dict: dict):
     """
     Insert / replace a session row into SQLite index.
     Expects keys:
@@ -161,3 +162,19 @@ def log_session_completion(
 
     # --- SQLite row ---
     _insert_into_db(json_entry)
+
+
+def record_session(session_id: str, reps_per_channel, combo_reps: int):
+    """
+    Backwards-compatible wrapper so older code can still call record_session(...)
+    and it will end up in the same JSON + SQLite flows.
+    """
+    log_session_completion(
+        mode="game",
+        source="patient_game_app",
+        reps_per_channel=reps_per_channel,
+        combo_reps=combo_reps,
+        csv_path=None,
+        timestamp=datetime.now(),
+        session_id=session_id,
+    )

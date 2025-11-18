@@ -1,0 +1,120 @@
+[
+  {
+    "id": "session_20251117_212917",
+    "timestamp": "2025-11-17T21:29:17",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      121,
+      121,
+      121,
+      120
+    ],
+    "combo_reps": 109,
+    "fingers_used": 4,
+    "total_reps": 483,
+    "csv_path": null
+  },
+  {
+    "id": "session_20251117_212919",
+    "timestamp": "2025-11-17T21:29:19",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      121,
+      121,
+      121,
+      120
+    ],
+    "combo_reps": 109,
+    "fingers_used": 4,
+    "total_reps": 483,
+    "csv_path": null
+  },
+  {
+    "id": "session_20251117_223100",
+    "timestamp": "2025-11-17T22:31:00",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      121,
+      121,
+      121,
+      120
+    ],
+    "combo_reps": 109,
+    "fingers_used": 4,
+    "total_reps": 483,
+    "csv_path": null
+  },
+  {
+    "id": "session_20251117_223103",
+    "timestamp": "2025-11-17T22:31:03",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      121,
+      121,
+      121,
+      120
+    ],
+    "combo_reps": 109,
+    "fingers_used": 4,
+    "total_reps": 483,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251117_224415",
+    "timestamp": "2025-11-17T22:44:39",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      122,
+      122,
+      122,
+      121
+    ],
+    "combo_reps": 110,
+    "fingers_used": 4,
+    "total_reps": 487,
+    "csv_path": null
+  },
+  {
+    "id": "session_20251117_224656",
+    "timestamp": "2025-11-17T22:46:56",
+    "mode": "monitor",
+    "source": "patient_app",
+    "reps_per_channel": [],
+    "combo_reps": 0,
+    "fingers_used": 0,
+    "total_reps": 0,
+    "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251117_224651.csv"
+  },
+  {
+    "id": "game_20251117_224707",
+    "timestamp": "2025-11-17T22:47:51",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      124,
+      124,
+      124,
+      123
+    ],
+    "combo_reps": 112,
+    "fingers_used": 4,
+    "total_reps": 495,
+    "csv_path": null
+  },
+  {
+    "id": "session_20251117_224759",
+    "timestamp": "2025-11-17T22:47:59",
+    "mode": "monitor",
+    "source": "patient_app",
+    "reps_per_channel": [],
+    "combo_reps": 0,
+    "fingers_used": 0,
+    "total_reps": 0,
+    "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251117_224754.csv"
+  }
+]

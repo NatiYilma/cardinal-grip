@@ -1,4 +1,4 @@
-# host/gui/patient_game_app.py #version 7
+# host/gui/patient_dashboard/patient_game_app.py
 
 import os
 import sys
@@ -27,17 +27,17 @@ from PyQt6.QtMultimedia import QSoundEffect
 # This file is .../cardinal-grip/host/gui/patient_dashboard/patient_game_app.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
-HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
+HOST_DIR = os.path.dirname(GUI_DIR)                 # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)            # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# This is for JSON DB logging sessions
+# Session logging
 from host.gui.session_logging import log_session_completion
 
-# This is Backend data from hardware
-# from comms.serial_backend import SerialBackend  # real ESP32
+# Backend from hardware (currently SimBackend; swap for real serial if needed)
+# from comms.serial_backend import SerialBackend
 from comms.sim_backend import SimBackend as SerialBackend  # simulated backend
 
 
@@ -120,6 +120,7 @@ class PatientGameWindow(QWidget):
 
         # Logging session
         self.session_start_time: float | None = None
+        self.current_session_id: str | None = None   # <<< define this here
 
         # Persistent stats
         self.reps_per_channel = [0] * NUM_CHANNELS
@@ -463,8 +464,10 @@ class PatientGameWindow(QWidget):
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.emoji_label.setText("")
-        
+
         self.session_start_time = time.time()
+        # Generate a unique-ish session id for logging
+        self.current_session_id = datetime.now().strftime("game_%Y%m%d_%H%M%S")
 
         self.timer.start()
         self.start_button.setEnabled(False)
@@ -480,9 +483,25 @@ class PatientGameWindow(QWidget):
             self.timer.stop()
             self.sessions_completed += 1
             self._save_stats()
+
+            # ---- Log this session to JSON + SQLite for dashboards ----
+            try:
+                log_session_completion(
+                    mode="game",
+                    source="patient_game_app",
+                    reps_per_channel=self.reps_per_channel,
+                    combo_reps=self.combo_reps,
+                    csv_path=None,
+                    timestamp=datetime.now(),
+                    session_id=self.current_session_id,
+                )
+            except Exception as e:
+                print("Warning: failed to log session:", e)
+
             self.session_count_label.setText(
                 f"Sessions completed (game mode): {self.sessions_completed}"
             )
+
         self.start_button.setEnabled(self.backend is not None)
         self.stop_button.setEnabled(False)
 
@@ -490,24 +509,6 @@ class PatientGameWindow(QWidget):
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.last_all_in_band = False
-
-        # ---- Log this session to JSON + SQLite for dashboards ----
-        try:
-            # Use wall-clock datetime; duration is implicit from data if needed
-            ts = datetime.now()
-            log_session_completion(
-                mode="game",
-                source="patient_game_app",
-                reps_per_channel=self.reps_per_channel,
-                combo_reps=self.combo_reps,
-                csv_path=None,
-                timestamp=ts,
-                session_id=None,  # auto-generate
-            )
-        except Exception:
-            # Don't crash the GUI if logging fails
-            pass
-
 
     # -------- Game loop --------
 

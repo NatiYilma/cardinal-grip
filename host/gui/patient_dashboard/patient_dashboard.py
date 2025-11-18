@@ -22,6 +22,9 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+# SQLite3 database
+from model.db import init_db
+
 # Import existing windows
 from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
@@ -32,6 +35,8 @@ from host.gui.dashboard_calendar import DashboardWindow
 class PatientDashboard(QWidget):
     def __init__(self):
         super().__init__()
+
+        init_db()  # Confirms instantiation of DB + table exists before anything else
 
         self.setWindowTitle("Cardinal Grip – Patient Dashboard")
         self.resize(600, 400)
