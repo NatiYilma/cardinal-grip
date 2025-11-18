@@ -26,7 +26,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 # ---------- IMPORT EXISTING WINDOWS ----------
-# Your tree:
+# File tree:
 #   host/gui/patient_dashboard/patient_game.py
 #   host/gui/patient_dashboard/patient_app.py
 #   host/gui/patient_dashboard/patient_dual_launcher.py
