@@ -186,5 +186,16 @@
     "fingers_used": 0,
     "total_reps": 0,
     "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251119_220649.csv"
+  },
+  {
+    "id": "session_20251120_011327",
+    "timestamp": "2025-11-20T01:13:27",
+    "mode": "monitor",
+    "source": "patient_app",
+    "reps_per_channel": [],
+    "combo_reps": 0,
+    "fingers_used": 0,
+    "total_reps": 0,
+    "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251120_011321.csv"
   }
 ]

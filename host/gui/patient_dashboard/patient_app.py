@@ -1,4 +1,4 @@
-# host/gui/patient_app.py #version 7
+# host/gui/patient_app.py #version 8 – added grid + hover crosshair
 
 import os
 import sys
@@ -29,8 +29,8 @@ import pyqtgraph as pg
 # This file is .../cardinal-grip/host/gui/patient_dashboard/patient_app.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
-HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
+HOST_DIR = os.path.dirname(GUI_DIR)                 # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)            # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
@@ -204,6 +204,33 @@ class PatientWindow(QWidget):
         # Ensure visuals match initial slider values
         self._update_band_visuals()
 
+        # ===== PLOT ENHANCEMENTS: grid + hover crosshair =====
+        self.plot_item = self.plot_widget.getPlotItem()
+        self.plot_item.showGrid(x=True, y=True, alpha=0.3)
+
+        # Crosshair lines
+        self.v_line = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen((150, 150, 150), width=1),
+        )
+        self.h_line = pg.InfiniteLine(
+            angle=0,
+            movable=False,
+            pen=pg.mkPen((150, 150, 150), width=1),
+        )
+        self.plot_item.addItem(self.v_line, ignoreBounds=True)
+        self.plot_item.addItem(self.h_line, ignoreBounds=True)
+
+        # Hover label (time + value)
+        self.hover_label = QLabel("t = – s, Force = – ADC")
+        self.hover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hover_label.setStyleSheet("color: gray;")
+        main_layout.addWidget(self.hover_label)
+
+        # Connect mouse move to update crosshair
+        self.plot_widget.scene().sigMouseMoved.connect(self._on_plot_mouse_moved)
+
         # ===== BOTTOM: Reset & Save =====
         bottom_row = QHBoxLayout()
 
@@ -223,9 +250,6 @@ class PatientWindow(QWidget):
         self.timer.timeout.connect(self.poll_sensor)
 
         # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
-        # When using SimBackend with keyboard input, make sure this window has
-        # focus so key presses reach keyPressEvent / keyReleaseEvent.
-        # For real Serial/WiFi/BLE backends, you can safely comment this out.
         self.setFocus()
         # ==== END SIM BACKEND HOOK ================================================
 
@@ -240,7 +264,7 @@ class PatientWindow(QWidget):
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
-        # Enforce Min <= Max logically (but allow sliders to cross visually if you want).
+        # Enforce Min <= Max logically
         if tmax < tmin:
             tmax = tmin
             self.target_max_slider.blockSignals(True)
@@ -259,6 +283,27 @@ class PatientWindow(QWidget):
     # Alias so patient_dual_launcher can call gw._update_band_labels()
     def _update_band_labels(self):
         self._update_band_visuals()
+
+    # ---------- HOVER HANDLER ----------
+
+    def _on_plot_mouse_moved(self, pos):
+        """
+        Update crosshair + label when the mouse moves over the plot.
+        """
+        if not self.times:
+            return
+
+        if not self.plot_widget.sceneBoundingRect().contains(pos):
+            return
+
+        vb = self.plot_item.vb
+        mouse_point = vb.mapSceneToView(pos)
+        t = mouse_point.x()
+        y = mouse_point.y()
+
+        self.v_line.setPos(t)
+        self.h_line.setPos(y)
+        self.hover_label.setText(f"t = {t:0.2f} s, Force = {y:0.1f} ADC")
 
     # ---------- CONNECTION LOGIC ----------
 
@@ -386,10 +431,6 @@ class PatientWindow(QWidget):
             self.curves[c].setData(t_list, list(self.values[c]))
 
     # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
-    # Generic key forwarding: sends raw characters to any backend that
-    # exposes a `handle_char(ch: str, is_press: bool)` method.
-    # For real Serial/WiFi/BLE backends, you can safely comment out this
-    # entire block and the rest of the GUI stays backend-agnostic.
     def keyPressEvent(self, event):
         if self.backend is not None and hasattr(self.backend, "handle_char"):
             ch = event.text()
@@ -459,7 +500,7 @@ class PatientWindow(QWidget):
                 pass
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save CSV:\n{e}")
-        
+
 
 def main():
     app = QApplication(sys.argv)

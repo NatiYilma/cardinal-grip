@@ -1,5 +1,4 @@
-## host/gui/clinician_app.py #version 7
-
+# host/gui/clinician_app.py #version 8 – added grid + hover crosshair
 
 ## Clinician viewer for offline analysis.
 ## - Loads CSVs produced by patient_app.py (time_s, ch0_adc, ..., ch3_adc)
@@ -35,11 +34,11 @@ from PyQt6.QtGui import QFont
 import pyqtgraph as pg
 
 # ------------ PATH SETUP ------------
-# This file is .../cardinal-grip/host/gui/clinician_dashboard/clinician.py
+# This file is .../cardinal-grip/host/gui/clinician_dashboard/clinician_app.py
 CLINICIAN_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/clinician_dashboard
 GUI_DIR = os.path.dirname(CLINICIAN_DASHBOARD_DIR)    # .../host/gui
-HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
+HOST_DIR = os.path.dirname(GUI_DIR)                   # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)              # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
@@ -119,6 +118,30 @@ class ClinicianWindow(QWidget):
         self.plot_widget.addItem(self.min_line)
         self.plot_widget.addItem(self.max_line)
 
+        # ===== PLOT ENHANCEMENTS: grid + hover crosshair =====
+        self.plot_item = self.plot_widget.getPlotItem()
+        self.plot_item.showGrid(x=True, y=True, alpha=0.3)
+
+        self.v_line = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen((150, 150, 150), width=1),
+        )
+        self.h_line = pg.InfiniteLine(
+            angle=0,
+            movable=False,
+            pen=pg.mkPen((150, 150, 150), width=1),
+        )
+        self.plot_item.addItem(self.v_line, ignoreBounds=True)
+        self.plot_item.addItem(self.h_line, ignoreBounds=True)
+
+        self.hover_label = QLabel("t = – s, Force = – ADC")
+        self.hover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hover_label.setStyleSheet("color: gray;")
+        main_layout.addWidget(self.hover_label)
+
+        self.plot_widget.scene().sigMouseMoved.connect(self._on_plot_mouse_moved)
+
         # --- Right side: toggles + thresholds + stats ---
         right_panel = QVBoxLayout()
         center_row.addLayout(right_panel, stretch=1)
@@ -182,6 +205,27 @@ class ClinicianWindow(QWidget):
         self.footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.footer_label.setStyleSheet("color: gray; padding-top: 6px;")
         main_layout.addWidget(self.footer_label)
+
+    # ---------- HOVER HANDLER ----------
+
+    def _on_plot_mouse_moved(self, pos):
+        """
+        Update crosshair + label when the mouse moves over the plot.
+        """
+        if not self.time:
+            return
+
+        if not self.plot_widget.sceneBoundingRect().contains(pos):
+            return
+
+        vb = self.plot_item.vb
+        mouse_point = vb.mapSceneToView(pos)
+        t = mouse_point.x()
+        y = mouse_point.y()
+
+        self.v_line.setPos(t)
+        self.h_line.setPos(y)
+        self.hover_label.setText(f"t = {t:0.2f} s, Force = {y:0.1f} ADC")
 
     # ---------- Threshold handlers ----------
 
