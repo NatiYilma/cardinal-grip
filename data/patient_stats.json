@@ -1,11 +1,11 @@
 {
   "reps_per_channel": [
-    12,
-    12,
-    12,
-    12
+    17,
+    17,
+    17,
+    16
   ],
   "sessions_completed": 4,
-  "combo_reps": 8,
-  "last_updated": "2025-11-19T22:06:41"
+  "combo_reps": 12,
+  "last_updated": "2025-11-20T00:05:58"
 }
