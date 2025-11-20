@@ -1,4 +1,4 @@
-# host/gui/patient_app.py #version 8 – added grid + hover crosshair
+# host/gui/patient_app.py #version 9 – grid + hover crosshair + CSV thresholds
 
 import os
 import sys
@@ -451,7 +451,7 @@ class PatientWindow(QWidget):
     def save_csv(self):
         """
         Save the current session's data:
-            time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc
+            time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc, tmin_adc, tmax_adc
         """
         if not self.times:
             QMessageBox.information(self, "No data", "No samples to save yet.")
@@ -473,10 +473,18 @@ class PatientWindow(QWidget):
         if not path:
             return
 
+        # Snapshot thresholds at save time
+        tmin = self.target_min_slider.value()
+        tmax = self.target_max_slider.value()
+
         try:
             with open(path, "w", newline="") as f:
                 writer = csv.writer(f)
-                header = ["time_s"] + [f"ch{c}_adc" for c in range(NUM_CHANNELS)]
+                header = (
+                    ["time_s"]
+                    + [f"ch{c}_adc" for c in range(NUM_CHANNELS)]
+                    + ["tmin_adc", "tmax_adc"]
+                )
                 writer.writerow(header)
 
                 length = len(self.times)
@@ -484,6 +492,8 @@ class PatientWindow(QWidget):
                     row = [self.times[i]]
                     for c in range(NUM_CHANNELS):
                         row.append(self.values[c][i])
+                    row.append(tmin)
+                    row.append(tmax)
                     writer.writerow(row)
 
             QMessageBox.information(self, "Saved", f"Session saved to:\n{path}")

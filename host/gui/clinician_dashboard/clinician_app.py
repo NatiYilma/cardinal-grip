@@ -1,19 +1,21 @@
-# host/gui/clinician_app.py #version 8 – added grid + hover crosshair
+# host/gui/clinician_app.py #version 9 – numpy stats + CSV thresholds + patient profile
 
 ## Clinician viewer for offline analysis.
-## - Loads CSVs produced by patient_app.py (time_s, ch0_adc, ..., ch3_adc)
+## - Loads CSVs produced by patient_app.py:
+##       time_s, ch0_adc, ..., ch3_adc, tmin_adc, tmax_adc   (thresholds optional)
 ## - "Load latest" button finds the newest CSV in data/logs
 ## - Plots up to 4 channels over time with toggles
-## - Shows basic stats (min, max, mean) per channel
-## - Adds Min/Max ADC controls with dashed horizontal lines on the plot
+## - Shows rich stats (min, max, mean, std, percentiles, % in-band) per channel
+## - Reads Min/Max ADC thresholds from CSV when present and syncs the controls
+## - Grid + hover crosshair for detailed inspection
 ##
-## NOTE: Thresholds are set manually in this app (CSV currently does not store them).
+## NOTE: If CSV has no tmin/tmax columns, thresholds fall back to current spinbox values.
 
 import os
 import sys
 import csv
+import statistics
 from glob import glob
-from statistics import mean
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -32,6 +34,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 
 import pyqtgraph as pg
+import numpy as np
+import json
 
 # ------------ PATH SETUP ------------
 # This file is .../cardinal-grip/host/gui/clinician_dashboard/clinician_app.py
@@ -46,6 +50,33 @@ if PROJECT_ROOT not in sys.path:
 NUM_CHANNELS = 4
 CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digitus Minimus"]
 
+# Optional patient profile shown in the header (single local patient for now)
+PATIENT_PROFILE_PATH = os.path.join(PROJECT_ROOT, "data", "patient_profile.json")
+
+
+def load_patient_profile() -> dict:
+    """
+    Load a simple patient_profile.json if present.
+
+    Example schema:
+    {
+        "name": "Patient Name",
+        "age":  32,
+        "diagnosis": "Post-stroke right hand weakness",
+        "injury_profile": ["Digitus Medius", "Digitus Annularis"]
+    }
+    """
+    if not os.path.isfile(PATIENT_PROFILE_PATH):
+        return {}
+    try:
+        with open(PATIENT_PROFILE_PATH, "r") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
 
 class ClinicianWindow(QWidget):
     def __init__(self):
@@ -54,8 +85,9 @@ class ClinicianWindow(QWidget):
         self.setWindowTitle("Cardinal Grip – Clinician Viewer")
         self.resize(1200, 800)
 
-        self.time: list[float] = []
-        self.channel_data: list[list[int]] = [[] for _ in range(NUM_CHANNELS)]
+        # Numeric data arrays
+        self.time: np.ndarray | None = None          # shape (N,)
+        self.channel_data: np.ndarray | None = None  # shape (4, N)
         self.loaded_path: str | None = None
 
         # Logical thresholds for overlay
@@ -65,6 +97,15 @@ class ClinicianWindow(QWidget):
         # ---------- MAIN LAYOUT ----------
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
+
+        # ===== PATIENT INFO HEADER =====
+        self.patient_label = QLabel("Patient: (no profile loaded)")
+        self.patient_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.patient_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        main_layout.addWidget(self.patient_label)
+
+        # Try to load profile once at startup (will be refreshed on CSV load)
+        self._refresh_patient_label()
 
         # ===== TOP BAR: load controls =====
         top_row = QHBoxLayout()
@@ -183,13 +224,16 @@ class ClinicianWindow(QWidget):
         right_panel.addWidget(thresh_group)
 
         # Stats panel
-        stats_group = QGroupBox("Basic statistics (per channel, all samples)")
+        stats_group = QGroupBox("Statistics (per channel, all samples)")
         stats_layout = QVBoxLayout()
         stats_group.setLayout(stats_layout)
 
         self.stats_labels: list[QLabel] = []
         for c in range(NUM_CHANNELS):
-            lbl = QLabel(f"Ch{c}: min –  max –  mean –")
+            lbl = QLabel(
+                f"Ch{c}: min –  max –  mean –  std –  "
+                f"p25–p50–p75 –  in-band –"
+            )
             lbl.setFont(QFont("Arial", 10))
             self.stats_labels.append(lbl)
             stats_layout.addWidget(lbl)
@@ -206,13 +250,44 @@ class ClinicianWindow(QWidget):
         self.footer_label.setStyleSheet("color: gray; padding-top: 6px;")
         main_layout.addWidget(self.footer_label)
 
+    # ---------- PATIENT LABEL ----------
+
+    def _refresh_patient_label(self):
+        profile = load_patient_profile()
+        if not profile:
+            self.patient_label.setText("Patient: (no profile loaded)")
+            return
+
+        name = profile.get("name", "Unknown")
+        age = profile.get("age", "–")
+        dx = profile.get("diagnosis", "")
+        problems = profile.get("injury_profile", [])
+
+        if isinstance(problems, list):
+            problems_str = ", ".join(str(p) for p in problems)
+        else:
+            problems_str = str(problems)
+
+        if dx:
+            text = (
+                f"Patient: {name}  |  Age: {age}  |  Dx/Notes: {dx}  "
+                f"|  Problem areas: {problems_str}"
+            )
+        else:
+            text = (
+                f"Patient: {name}  |  Age: {age}  "
+                f"|  Problem areas: {problems_str}"
+            )
+
+        self.patient_label.setText(text)
+
     # ---------- HOVER HANDLER ----------
 
     def _on_plot_mouse_moved(self, pos):
         """
         Update crosshair + label when the mouse moves over the plot.
         """
-        if not self.time:
+        if self.time is None or self.time.size == 0:
             return
 
         if not self.plot_widget.sceneBoundingRect().contains(pos):
@@ -239,6 +314,7 @@ class ClinicianWindow(QWidget):
             self.max_spin.blockSignals(False)
         self.min_line.setPos(self.tmin)
         self.max_line.setPos(self.tmax)
+        self.update_stats()
 
     def _on_max_changed(self, value: int):
         self.tmax = value
@@ -250,6 +326,7 @@ class ClinicianWindow(QWidget):
             self.min_spin.blockSignals(False)
         self.min_line.setPos(self.tmin)
         self.max_line.setPos(self.tmax)
+        self.update_stats()
 
     # ---------- CSV LOADING ----------
 
@@ -290,7 +367,8 @@ class ClinicianWindow(QWidget):
     def _load_csv(self, path: str):
         """
         Load a CSV produced by patient_app.py:
-            time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc
+            time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc, [tmin_adc, tmax_adc]
+        Threshold columns are optional.
         """
         try:
             with open(path, "r", newline="") as f:
@@ -302,7 +380,7 @@ class ClinicianWindow(QWidget):
 
                 name_to_idx = {name: i for i, name in enumerate(header)}
 
-                def col_index(name, default):
+                def col_index(name, default=None):
                     return name_to_idx.get(name, default)
 
                 t_idx = col_index("time_s", 0)
@@ -313,8 +391,14 @@ class ClinicianWindow(QWidget):
                     col_index("ch3_adc", 4),
                 ]
 
+                tmin_idx = col_index("tmin_adc", None)
+                tmax_idx = col_index("tmax_adc", None)
+
                 times: list[float] = []
-                channels: list[list[int]] = [[] for _ in range(NUM_CHANNELS)]
+                channels: list[list[float]] = [[] for _ in range(NUM_CHANNELS)]
+
+                first_tmin = None
+                first_tmax = None
 
                 for row in reader:
                     if not row:
@@ -327,18 +411,46 @@ class ClinicianWindow(QWidget):
 
                     for c in range(NUM_CHANNELS):
                         try:
-                            v = int(float(row[ch_idx[c]]))
-                        except (ValueError, IndexError):
-                            v = 0
+                            v = float(row[ch_idx[c]])
+                        except (ValueError, IndexError, TypeError):
+                            v = 0.0
                         channels[c].append(v)
 
-            self.time = times
-            self.channel_data = channels
+                    # Capture thresholds from the first row that has them
+                    if first_tmin is None and tmin_idx is not None and tmin_idx < len(row):
+                        try:
+                            first_tmin = float(row[tmin_idx])
+                        except (ValueError, TypeError):
+                            pass
+                    if first_tmax is None and tmax_idx is not None and tmax_idx < len(row):
+                        try:
+                            first_tmax = float(row[tmax_idx])
+                        except (ValueError, TypeError):
+                            pass
+
+            # Convert to NumPy
+            self.time = np.array(times, dtype=float)
+            self.channel_data = np.array(channels, dtype=float)  # shape (4, N)
             self.loaded_path = path
 
             base = os.path.basename(path)
             self.file_label.setText(f"Loaded: {base}")
             self.file_label.setStyleSheet("color: black;")
+
+            # If CSV contained thresholds, sync to spinboxes
+            if first_tmin is not None and first_tmax is not None:
+                self.min_spin.blockSignals(True)
+                self.max_spin.blockSignals(True)
+                self.min_spin.setValue(int(first_tmin))
+                self.max_spin.setValue(int(first_tmax))
+                self.min_spin.blockSignals(False)
+                self.max_spin.blockSignals(False)
+                # This will indirectly update tmin/tmax + overlay via _on_*_changed
+                self._on_min_changed(self.min_spin.value())
+                self._on_max_changed(self.max_spin.value())
+
+            # Refresh patient label (in case profile changed while running)
+            self._refresh_patient_label()
 
             self.update_plot()
             self.update_stats()
@@ -356,7 +468,7 @@ class ClinicianWindow(QWidget):
         """
         Update the plot curves based on loaded data and channel checkboxes.
         """
-        if not self.time:
+        if self.time is None or self.time.size == 0 or self.channel_data is None:
             for curve in self.curves:
                 curve.setData([], [])
             return
@@ -364,7 +476,7 @@ class ClinicianWindow(QWidget):
         visible_any = False
         for c in range(NUM_CHANNELS):
             if self.channel_checkboxes[c].isChecked():
-                self.curves[c].setData(self.time, self.channel_data[c])
+                self.curves[c].setData(self.time, self.channel_data[c, :])
                 visible_any = True
             else:
                 self.curves[c].setData([], [])
@@ -376,24 +488,42 @@ class ClinicianWindow(QWidget):
 
     def update_stats(self):
         """
-        Compute min / max / mean for each channel and update labels.
+        Compute min / max / mean / std / percentiles and
+        % time in threshold band for each channel and update labels.
         """
-        if not self.time or not self.channel_data:
+        if self.time is None or self.time.size == 0 or self.channel_data is None:
             for c in range(NUM_CHANNELS):
-                self.stats_labels[c].setText(f"Ch{c}: min –  max –  mean –")
+                self.stats_labels[c].setText(
+                    f"Ch{c}: min –  max –  mean –  std –  p25–p50–p75 –  in-band –"
+                )
             return
 
+        data = self.channel_data  # shape (4, N)
+
         for c in range(NUM_CHANNELS):
-            data = self.channel_data[c]
-            if not data:
-                self.stats_labels[c].setText(f"Ch{c}: min –  max –  mean –")
+            ch = data[c, :]  # (N,)
+            if ch.size == 0:
+                self.stats_labels[c].setText(
+                    f"Ch{c}: min –  max –  mean –  std –  p25–p50–p75 –  in-band –"
+                )
                 continue
 
-            mn = min(data)
-            mx = max(data)
-            avg = mean(data)
+            mn = float(np.min(ch))
+            mx = float(np.max(ch))
+            avg = float(np.mean(ch))
+            std = float(np.std(ch, ddof=0))
+
+            p25, p50, p75 = np.percentile(ch, [25, 50, 75])
+
+            # % of samples inside threshold band
+            in_band_mask = (ch >= self.tmin) & (ch <= self.tmax)
+            pct_in_band = float(in_band_mask.mean() * 100.0)
+
             self.stats_labels[c].setText(
-                f"Ch{c}: min {mn:.0f}   max {mx:.0f}   mean {avg:.1f}"
+                f"Ch{c}: "
+                f"min {mn:.0f}   max {mx:.0f}   mean {avg:.1f}   std {std:.1f}   "
+                f"p25 {p25:.0f}   p50 {p50:.0f}   p75 {p75:.0f}   "
+                f"in-band {pct_in_band:5.1f}%"
             )
 
 
