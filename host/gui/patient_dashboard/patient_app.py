@@ -42,8 +42,13 @@ from host.gui.session_logging import log_session_completion
 # For real ESP32-S3 over serial, use:
 # from comms.serial_backend import SerialBackend  # multi-channel backend
 #
+# Terminal command to show ports:
+ #ls /dev/cu.usbserial* #ls /dev/cu.usbserial-0001
+ #
 # For simulated backend with keyboard-driven values, use:
-from comms.sim_backend import SimBackend as SerialBackend  # simulated FSR + keyboard
+#from comms.sim_backend import SimBackend as SerialBackend  # simulated FSR + keyboard
+from comms.serial_backend import SerialBackend
+#print("Port list:"+{SerialBackend.list_ports()})
 # ================================================================
 
 NUM_CHANNELS = 4
@@ -56,6 +61,7 @@ class PatientWindow(QWidget):
 
         self.setWindowTitle("Cardinal Grip – Patient (Multi-Finger)")
         self.resize(1100, 700)
+        print("Patient Window Launched and Running")
 
         # Serial + data
         self.backend: SerialBackend | None = None
@@ -67,18 +73,24 @@ class PatientWindow(QWidget):
 
         # ---------- MAIN LAYOUT ----------
         main_layout = QVBoxLayout()
+        # main_layout.setContentsMargins(0, 0, 0, 0)
+        # main_layout.setSpacing(6)
         self.setLayout(main_layout)
 
         # ===== TOP: Serial config & connection =====
         top_row = QHBoxLayout()
+        # top_row.setContentsMargins(0, 0, 0, 0)   
+        # top_row.setSpacing(6)                    
 
         top_row.addWidget(QLabel("Serial port:"))
-        self.port_edit = QLineEdit("/dev/cu.usbmodem14101")
+        self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
+        self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
         top_row.addWidget(self.port_edit)
 
         top_row.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
+        self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
         top_row.addWidget(self.baud_edit)
 
@@ -311,7 +323,8 @@ class PatientWindow(QWidget):
         if self.backend is not None:
             return
 
-        port = self.port_edit.text().strip()
+        # Read what the user typed in the port box
+        port_text = self.port_edit.text().strip()
 
         try:
             baud = int(self.baud_edit.text().strip())
@@ -319,16 +332,28 @@ class PatientWindow(QWidget):
             QMessageBox.warning(self, "Error", "Invalid baud rate.")
             return
 
+        # If empty or "auto" -> let SerialBackend auto-detect
+        if not port_text or port_text.lower() == "auto":
+            port_arg = None        # triggers auto_detect_port() inside SerialBackend.open()
+        else:
+            port_arg = port_text   # explicit device path
+
         try:
             # NOTE: For SimBackend, port/baud/timeout are accepted but ignored.
-            self.backend = SerialBackend(port=port, baud=baud, timeout=0.01)
+            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
             self.backend.start()
         except Exception as e:
-            QMessageBox.critical(self, "Serial error", f"Failed to open {port}:\n{e}")
+            QMessageBox.critical(
+                self,
+                "Serial error",
+                f"Failed to open {port_arg or '(auto-detect)'}:\n{e}",
+            )
             self.backend = None
             return
 
-        self.status_label.setText(f"Status: Connected to {port} @ {baud}")
+        # Show label for status line
+        port_label = port_arg if port_arg is not None else "(auto)"
+        self.status_label.setText(f"Status: Connected to {port_label} @ {baud}")
         self.connect_button.setEnabled(False)
         self.disconnect_button.setEnabled(True)
 

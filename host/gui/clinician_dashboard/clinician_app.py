@@ -61,7 +61,7 @@ def load_patient_profile() -> dict:
     Example schema:
     {
         "name": "Patient Name",
-        "age":  32,
+        "age":  67,
         "diagnosis": "Post-stroke right hand weakness",
         "injury_profile": ["Digitus Medius", "Digitus Annularis"]
     }

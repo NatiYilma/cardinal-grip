@@ -1,4 +1,4 @@
-# comms/sim_backend.py #version 4
+# comms/sim_backend.py #version 5
 
 """
 SimBackend – manual-only backend with ramped squeeze and multi-speed key mapping.
@@ -6,11 +6,13 @@ SimBackend – manual-only backend with ramped squeeze and multi-speed key mappi
 Used as:
     from comms.sim_backend import SimBackend as SerialBackend
 
-API (compatible with SerialBackend):
+API (compatible with SerialBackend + BaseBackend):
     SimBackend(port=None, baud=115200, timeout=0.01, update_interval=None)
     start()
     stop()
     get_latest() -> list[4 ints]
+    get_window(n) -> list of last n samples (simulated)
+    send_command(cmd: str) -> tweak noise / levels (optional)
 
 Extra API (called by patient_game_app via keyPressEvent / keyReleaseEvent):
     handle_char(ch: str, is_press: bool)
@@ -40,13 +42,17 @@ Channel 4 (Pinky, channel 3):
 Globals:
     z : raises everything at the same time (at least slow rate)
     x : drops everything back down faster
-
-Releasing keys removes their contribution; channels then ramp back down toward LOW_LEVEL.
 """
 
+from __future__ import annotations
+
+import random
 import threading
 import time
-import random
+from collections import deque
+from typing import List, Deque, Tuple, Optional, Set
+
+from .base_backend import BaseBackend
 
 NUM_CHANNELS = 4
 
@@ -63,10 +69,10 @@ MEDIUM_UP_RATE = (SLOW_UP_RATE + FAST_UP_RATE) / 2.0
 DOWN_RATE = 900.0          # natural relax speed
 DOWN_RATE_FAST = 2200.0    # when 'x' is held, drop faster
 
-JITTER_AMOUNT = 40
+DEFAULT_JITTER_AMOUNT = 40
 
 
-class SimBackend:
+class SimBackend(BaseBackend):
     """
     Software stand-in for the ESP32-S3 + FSR grid.
 
@@ -75,8 +81,15 @@ class SimBackend:
     - Each channel's value ramps up/down based on which keys are pressed.
     """
 
-    def __init__(self, port=None, baud=115200, timeout=0.01, update_interval=None):
-        # Kept for API compatibility
+    def __init__(
+        self,
+        port: Optional[str] = None,
+        baud: int = 115200,
+        timeout: float = 0.01,
+        update_interval: Optional[float] = None,
+        history_size: int = 0,
+    ):
+        # Kept for API compatibility; unused by simulator
         self.port = port
         self.baud = baud
         self.timeout = timeout
@@ -87,24 +100,32 @@ class SimBackend:
 
         # Threading / state
         self._running = False
-        self._thread: threading.Thread | None = None
+        self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
         # Channel levels (floats, then jittered & clamped to ints)
-        self._levels = [LOW_LEVEL] * NUM_CHANNELS
-        self._latest = [int(LOW_LEVEL)] * NUM_CHANNELS
+        self._levels: List[float] = [LOW_LEVEL] * NUM_CHANNELS
+        self._latest: List[int] = [int(LOW_LEVEL)] * NUM_CHANNELS
+
+        # Optional history for stats/debugging
+        self._history: Optional[Deque[Tuple[float, List[int]]]] = (
+            deque(maxlen=history_size) if history_size > 0 else None
+        )
 
         # Pressed key set
-        self._pressed_keys: set[str] = set()
+        self._pressed_keys: Set[str] = set()
+
+        # Noise / jitter amplitude (can be tuned via send_command)
+        self._jitter_amount: int = DEFAULT_JITTER_AMOUNT
 
         # For dt computation
         self._last_update_time = time.time()
 
     # ------------------------------------------------------------------
-    # Public API – compatible with SerialBackend
+    # Public API – compatible with SerialBackend/BaseBackend
     # ------------------------------------------------------------------
 
-    def start(self):
+    def start(self) -> None:
         """Start the background simulation thread."""
         if self._running:
             return
@@ -112,14 +133,14 @@ class SimBackend:
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the background simulation thread."""
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
 
-    def get_latest(self):
+    def get_latest(self) -> List[int]:
         """
         Return the latest 4-channel values as a list of ints.
         patient_game_app.game_tick() calls this frequently.
@@ -127,11 +148,61 @@ class SimBackend:
         with self._lock:
             return list(self._latest)
 
+    def get_window(self, n: int) -> List[List[int]]:
+        """
+        Return up to the last n samples (most recent last).
+
+        If history is disabled, this falls back to repeating the latest sample.
+        """
+        if n <= 0:
+            return []
+
+        with self._lock:
+            if self._history is None or not self._history:
+                return [list(self._latest) for _ in range(n)]
+
+            items = list(self._history)[-n:]
+        return [vals for (_ts, vals) in items]
+
+    # Simple control channel for tweaking simulation parameters
+    def send_command(self, cmd: str) -> None:
+        """
+        Basic command parser for tuning the simulator, e.g.:
+
+          "noise 0"       -> disable jitter
+          "noise 40"      -> default jitter
+          "noise 100"     -> very noisy
+          "reset"         -> reset all channels to LOW_LEVEL
+
+        Unknown commands are ignored.
+        """
+        if not cmd:
+            return
+
+        parts = cmd.strip().lower().split()
+        if not parts:
+            return
+
+        head = parts[0]
+
+        with self._lock:
+            if head == "noise" and len(parts) >= 2:
+                try:
+                    amt = int(parts[1])
+                    self._jitter_amount = max(0, min(200, amt))
+                except ValueError:
+                    pass
+            elif head == "reset":
+                self._levels = [LOW_LEVEL] * NUM_CHANNELS
+                self._latest = [int(LOW_LEVEL)] * NUM_CHANNELS
+                if self._history is not None:
+                    self._history.clear()
+
     # ------------------------------------------------------------------
     # Extra API – generic key input from GUI
     # ------------------------------------------------------------------
 
-    def handle_char(self, ch: str, is_press: bool):
+    def handle_char(self, ch: str, is_press: bool) -> None:
         """
         Process a character key event coming from the GUI.
 
@@ -141,20 +212,19 @@ class SimBackend:
         if not ch:
             return
 
-        ch = ch[0].lower()  # normalize to single lowercase char
+        c = ch[0].lower()  # normalize to single lowercase char
 
-        # We only care about a small subset, but it's cheap to store any.
         with self._lock:
             if is_press:
-                self._pressed_keys.add(ch)
+                self._pressed_keys.add(c)
             else:
-                self._pressed_keys.discard(ch)
+                self._pressed_keys.discard(c)
 
     # ------------------------------------------------------------------
     # Internal main loop
     # ------------------------------------------------------------------
 
-    def _run_loop(self):
+    def _run_loop(self) -> None:
         """Main simulation loop; runs in a background thread."""
         while self._running:
             now = time.time()
@@ -166,6 +236,7 @@ class SimBackend:
             with self._lock:
                 levels = list(self._levels)
                 keys = set(self._pressed_keys)
+                jitter_amount = self._jitter_amount
 
             # Compute new level for each channel
             for ch_idx in range(NUM_CHANNELS):
@@ -197,12 +268,15 @@ class SimBackend:
                         )
 
             # Add jitter, clamp, and store
-            jittered = [self._jitter(val, JITTER_AMOUNT) for val in levels]
+            jittered = [self._jitter(val, jitter_amount) for val in levels]
             jittered = [int(max(MIN_LEVEL, min(4095, v))) for v in jittered]
+            ts = time.time()
 
             with self._lock:
                 self._levels = levels
                 self._latest = jittered
+                if self._history is not None:
+                    self._history.append((ts, list(jittered)))
 
             time.sleep(self.update_interval)
 
@@ -210,7 +284,7 @@ class SimBackend:
     # Per-channel rate logic based on pressed keys
     # ------------------------------------------------------------------
 
-    def _compute_up_rate_for_channel(self, ch_idx: int, keys: set[str]) -> float:
+    def _compute_up_rate_for_channel(self, ch_idx: int, keys: Set[str]) -> float:
         """
         Return the upward ramp rate for a channel, based on pressed keys.
 
@@ -232,7 +306,7 @@ class SimBackend:
             else:
                 return 0.0
 
-        elif ch_idx == 1:
+        if ch_idx == 1:
             # Channel 2
             if "q" in keys and "i" in keys:
                 return MEDIUM_UP_RATE
@@ -243,7 +317,7 @@ class SimBackend:
             else:
                 return 0.0
 
-        elif ch_idx == 2:
+        if ch_idx == 2:
             # Channel 3
             if "e" in keys and "o" in keys:
                 return MEDIUM_UP_RATE
@@ -254,7 +328,7 @@ class SimBackend:
             else:
                 return 0.0
 
-        elif ch_idx == 3:
+        if ch_idx == 3:
             # Channel 4
             if "r" in keys and "p" in keys:
                 return MEDIUM_UP_RATE
@@ -271,6 +345,9 @@ class SimBackend:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _jitter(self, base: float, amount: int = 40) -> float:
+    @staticmethod
+    def _jitter(base: float, amount: int = 40) -> float:
         """Small random jitter to make values less robotically constant."""
+        if amount <= 0:
+            return base
         return base + random.randint(-amount, amount)

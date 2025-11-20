@@ -60,9 +60,10 @@ class DualPatientGameWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Cardinal Grip – Dual Patient View (Shared Backend)")
+        self.setWindowTitle("Cardinal Grip – Dual Patient View")
         self.resize(1200, 750)
         self.setMinimumSize(1100, 700)
+        print("Patient Dual Window Launched and Running")
 
         self.shared_backend = None
         self.current_session_id: str | None = None
@@ -81,15 +82,18 @@ class DualPatientGameWindow(QWidget):
         main_layout.addWidget(header)
 
         # ===== SHARED CONNECTION BAR =====
+        # (Shared Backend)
         shared_bar = QHBoxLayout()
 
         shared_bar.addWidget(QLabel("Port:"))
-        self.port_edit = QLineEdit("/dev/cu.usbmodem14101")
+        self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
+        self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
         shared_bar.addWidget(self.port_edit)
 
         shared_bar.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
+        self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
         shared_bar.addWidget(self.baud_edit)
 
@@ -284,6 +288,7 @@ class DualPatientGameWindow(QWidget):
         Let the game window perform its normal connect()
         and then share its backend with the patient monitor.
         """
+        
         if self.shared_backend is not None:
             return
 
