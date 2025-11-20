@@ -1,0 +1,10 @@
+{
+  "language": "English",
+  "theme": "Light",
+  "sound_enabled": true,
+  "units": "Imperial",
+  "serial_port": "/dev/cu.usbmodem14101",
+  "baud_rate": "115200",
+  "bluetooth_id": "",
+  "wifi_host": ""
+}

@@ -1,0 +1,15 @@
+{
+  "name": "Nate",
+  "age": 67,
+  "location": "Los Angeles, USA",
+  "handedness": "Right-handed",
+  "start_date": "2025-11-09",
+  "injury_profile": {
+    "Thumb": "Unaffected",
+    "Index": "Mildly impaired",
+    "Middle": "Moderately impaired",
+    "Ring": "Moderately impaired",
+    "Pinky": "Severely impaired"
+  },
+  "notes": "I wish I were ambidextrous; that would be cool. I guess being right handed is alright (not all left). Ok I'm done :D"
+}
