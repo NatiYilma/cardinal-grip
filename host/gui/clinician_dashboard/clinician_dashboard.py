@@ -42,9 +42,10 @@ SESSIONS_JSON_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 CLINICIAN_PROFILE_PATH = os.path.join(DATA_DIR, "clinician_profile.json")
 CLINICIAN_SETTINGS_PATH = os.path.join(DATA_DIR, "clinician_settings.json")
 
-# Re-use existing calendar + clinician monitor + dual view
+# Re-use existing calendar + clinician monitor + dual view + patient multi-finger view
 from host.gui.dashboard_calendar import DashboardWindow
 from host.gui.clinician_dashboard.clinician_app import ClinicianWindow
+from host.gui.patient_dashboard.patient_app import PatientWindow
 from host.gui.patient_dashboard.patient_dual_launcher import DualPatientGameWindow
 
 
@@ -100,7 +101,7 @@ class ClinicianDashboardPage(QWidget):
     """
     Main clinician dashboard:
       - High-level stats from sessions_log.json
-      - Quick actions (monitor, dual view, calendar)
+      - Quick actions (monitor, multi-finger monitor, dual view, calendar)
     """
 
     def __init__(self, parent_shell):
@@ -145,6 +146,11 @@ class ClinicianDashboardPage(QWidget):
         btn_monitor = QPushButton("Open Clinician Monitor")
         btn_monitor.clicked.connect(self.shell.open_monitor)
         actions_layout.addWidget(btn_monitor)
+
+        # NEW: Multi-finger monitor (same view as patient multi-finger mode)
+        btn_multi_monitor = QPushButton("Multi-Finger Monitor")
+        btn_multi_monitor.clicked.connect(self.shell.open_multi_monitor)
+        actions_layout.addWidget(btn_multi_monitor)
 
         btn_dual = QPushButton("Dual View (Patient Game + Monitor)")
         btn_dual.clicked.connect(self.shell.open_dual)
@@ -584,6 +590,7 @@ class ClinicianShellWindow(QWidget):
       - Settings
       - Quick buttons on dashboard for:
           * Clinician monitor
+          * Multi-finger monitor (patient-style)
           * Dual view (patient game + monitor)
     """
 
@@ -595,6 +602,7 @@ class ClinicianShellWindow(QWidget):
 
         self.sidebar_expanded = True
         self._open_windows = []
+        self.multi_monitor_win = None   # NEW: persistent multi-finger window
 
         root_layout = QHBoxLayout()
         self.setLayout(root_layout)
@@ -725,6 +733,20 @@ class ClinicianShellWindow(QWidget):
         win = ClinicianWindow()
         win.show()
         self._open_windows.append(win)
+
+    def open_multi_monitor(self):
+        """
+        Open the multi-finger monitor used on the patient side (PatientWindow).
+        This lets the clinician see the same 4-channel view.
+        """
+        if self.multi_monitor_win is None:
+            self.multi_monitor_win = PatientWindow()
+            self.multi_monitor_win.setWindowTitle(
+                "Cardinal Grip – Multi-Finger Monitor (Clinician View)"
+            )
+        self.multi_monitor_win.show()
+        self.multi_monitor_win.raise_()
+        self.multi_monitor_win.activateWindow()
 
     def open_dual(self):
         """

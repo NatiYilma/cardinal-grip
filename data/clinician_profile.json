@@ -1,11 +1,17 @@
 {
-  "name": "Nate BME",
+  "name": "Cardinal Team",
   "location": "Los Angeles, CA, USA",
   "org_type": "Other",
   "org_name": "USC BME 405",
-  "specialty": "Cardinal Team - Engineer",
+  "specialty": "Biomedical Engineer",
   "notes": "Gotta hand it to myself ;)",
   "patients": [
-    "Nate"
+    "Jay",
+    "Panas",
+    "Paula",
+    "Nancy",
+    "Nate",
+    "Vasquez",
+    "Zero"
   ]
 }
