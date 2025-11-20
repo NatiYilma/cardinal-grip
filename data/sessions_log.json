@@ -4,7 +4,12 @@
     "timestamp": "2025-11-10T10:15:00",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [1, 0, 0, 0],
+    "reps_per_channel": [
+      1,
+      0,
+      0,
+      0
+    ],
     "combo_reps": 0,
     "fingers_used": 1,
     "total_reps": 1,
@@ -15,7 +20,12 @@
     "timestamp": "2025-11-11T11:09:00",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [2, 2, 0, 0],
+    "reps_per_channel": [
+      2,
+      2,
+      0,
+      0
+    ],
     "combo_reps": 0,
     "fingers_used": 2,
     "total_reps": 4,
@@ -26,7 +36,12 @@
     "timestamp": "2025-11-12T08:42:00",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [3, 3, 3, 0],
+    "reps_per_channel": [
+      3,
+      3,
+      3,
+      0
+    ],
     "combo_reps": 0,
     "fingers_used": 3,
     "total_reps": 9,
@@ -37,7 +52,12 @@
     "timestamp": "2025-11-13T15:45:30",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [2, 2, 2, 2],
+    "reps_per_channel": [
+      2,
+      2,
+      2,
+      2
+    ],
     "combo_reps": 0,
     "fingers_used": 4,
     "total_reps": 8,
@@ -48,12 +68,17 @@
     "timestamp": "2025-11-14T09:22:15",
     "mode": "game",
     "source": "patient_game_app",
-    "reps_per_channel": [4, 4, 4, 4],
+    "reps_per_channel": [
+      4,
+      4,
+      4,
+      4
+    ],
     "combo_reps": 1,
     "fingers_used": 4,
     "total_reps": 16,
     "csv_path": null
-  },  
+  },
   {
     "id": "game_20251117_231431",
     "timestamp": "2025-11-17T23:15:00",
@@ -95,6 +120,22 @@
     "combo_reps": 0,
     "fingers_used": 3,
     "total_reps": 6,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251119_200231",
+    "timestamp": "2025-11-19T20:21:24",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "combo_reps": 1,
+    "fingers_used": 4,
+    "total_reps": 12,
     "csv_path": null
   }
 ]
