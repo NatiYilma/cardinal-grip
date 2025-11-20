@@ -558,12 +558,9 @@ class SettingsPage(QWidget):
         except Exception as e:
             print("Failed to save settings:", e)
 
-        # You could also emit a signal here so the rest of the app can adapt
-        # to theme / sound / connection changes dynamically.
-
 
 # =====================================================================
-#  Shell window with sidebar + stacked pages
+#  Shell window with *expandable* sidebar + stacked pages
 # =====================================================================
 
 class PatientShellWindow(QWidget):
@@ -578,23 +575,37 @@ class PatientShellWindow(QWidget):
         self.dual_win = None
         self.calendar_popup = None  # if you still ever want a stand-alone calendar
 
+        self.sidebar_expanded = True
+        self.expanded_sidebar_width = 220
+        self.collapsed_sidebar_width = 60
+
         root_layout = QHBoxLayout()
         self.setLayout(root_layout)
 
         # Sidebar (left)
-        sidebar = QVBoxLayout()
-        sidebar_widget = QWidget()
-        sidebar_widget.setLayout(sidebar)
-        sidebar_widget.setFixedWidth(200)
+        self.sidebar_layout = QVBoxLayout()
+        self.sidebar_widget = QWidget()
+        self.sidebar_widget.setLayout(self.sidebar_layout)
+        self.sidebar_widget.setFixedWidth(self.expanded_sidebar_width)
 
-        app_label = QLabel("Cardinal Grip")
-        app_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        app_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
-        sidebar.addWidget(app_label)
+        # Top row: hamburger button + app label
+        top_row = QHBoxLayout()
+        self.toggle_btn = QPushButton("☰")
+        self.toggle_btn.setFixedWidth(30)
+        self.toggle_btn.clicked.connect(self.toggle_sidebar)
+        top_row.addWidget(self.toggle_btn)
 
-        sidebar.addSpacing(10)
+        self.app_label = QLabel("Cardinal Grip")
+        self.app_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.app_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        top_row.addWidget(self.app_label, stretch=1)
+
+        self.sidebar_layout.addLayout(top_row)
+        self.sidebar_layout.addSpacing(10)
 
         self.nav_buttons = {}
+        self.nav_button_labels = {}  # full text labels
+
         self.stack = QStackedWidget()
 
         # Create pages
@@ -622,9 +633,11 @@ class PatientShellWindow(QWidget):
         def make_nav_button(text, key):
             btn = QPushButton(text)
             btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda: self.switch_page(key))
-            sidebar.addWidget(btn)
+            self.sidebar_layout.addWidget(btn)
             self.nav_buttons[key] = btn
+            self.nav_button_labels[key] = text
 
         make_nav_button("Dashboard", "dashboard")
         make_nav_button("Calendar", "calendar")
@@ -632,13 +645,38 @@ class PatientShellWindow(QWidget):
         make_nav_button("Notifications", "notifications")
         make_nav_button("Settings", "settings")
 
-        sidebar.addStretch(1)
+        self.sidebar_layout.addStretch(1)
 
-        root_layout.addWidget(sidebar_widget)
+        root_layout.addWidget(self.sidebar_widget)
         root_layout.addWidget(self.stack, stretch=1)
 
         # Start on Dashboard
         self.switch_page("dashboard")
+
+    # ----- Sidebar expand/collapse -----
+
+    def toggle_sidebar(self):
+        self.sidebar_expanded = not self.sidebar_expanded
+
+        if self.sidebar_expanded:
+            # Expanded: full width, full labels
+            self.sidebar_widget.setFixedWidth(self.expanded_sidebar_width)
+            self.app_label.setText("Cardinal Grip")
+            self.app_label.setVisible(True)
+
+            for key, btn in self.nav_buttons.items():
+                full_text = self.nav_button_labels.get(key, key.title())
+                btn.setText(full_text)
+                btn.setToolTip("")  # no need, label is visible
+        else:
+            # Collapsed: narrow, minimal text
+            self.sidebar_widget.setFixedWidth(self.collapsed_sidebar_width)
+            self.app_label.setText("CG")
+
+            for key, btn in self.nav_buttons.items():
+                full_text = self.nav_button_labels.get(key, key.title())
+                btn.setText("•")  # minimal mark
+                btn.setToolTip(full_text)
 
     # ----- Nav helpers -----
 
