@@ -47,8 +47,9 @@ from host.gui.session_logging import log_session_completion
  #
 # For simulated backend with keyboard-driven values, use:
 #from comms.sim_backend import SimBackend as SerialBackend  # simulated FSR + keyboard
-from comms.serial_backend import SerialBackend
-#print("Port list:"+{SerialBackend.list_ports()})
+from comms.serial_backend import SerialBackend, auto_detect_port
+# Optional: print available ports for debugging
+# print(SerialBackend.list_ports())
 # ================================================================
 
 NUM_CHANNELS = 4
@@ -86,6 +87,18 @@ class PatientWindow(QWidget):
         self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
         self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
+        # --- Placeholder to auto-detected port, if any ---
+        try:
+            detected = auto_detect_port()
+        except Exception:
+            detected = None
+
+        if detected:
+            # This will appear as light/transparent text until user types
+            self.port_edit.setPlaceholderText(detected)
+        else:
+            # Fallback hint if nothing is detected
+            self.port_edit.setPlaceholderText("Auto-detecting port...")
         top_row.addWidget(self.port_edit)
 
         top_row.addWidget(QLabel("Baud:"))
@@ -353,13 +366,14 @@ class PatientWindow(QWidget):
             QMessageBox.critical(
                 self,
                 "Serial error",
-                f"Failed to open {port_label}:\n{e}",
+                f"Failed to open {port_arg or '(auto-detect)'}:\n{e}",
             )
             self.backend = None
             return
 
         # Connected Status at this point
-        self.status_label.setText(f"Status: Connected to {port_label} @ {baud}")
+        actual_port = getattr(self.backend, "port", None) or "(auto)"
+        self.status_label.setText(f"Status: Connected to {actual_port} @ {baud}")
         self.connect_button.setEnabled(False)
         self.disconnect_button.setEnabled(True)
 
