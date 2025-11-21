@@ -18,13 +18,24 @@ def auto_detect_port() -> Optional[str]:
     On macOS, these are typically:
       - /dev/cu.usbmodemXXXX
       - /dev/cu.usbserial-XXXX
+    
+    On Terminal (bash/zsh): "ls /dev/cu.*" to find list of ports
+
+    Example 1 --port /dev/cu.usbserial-0001
+    Example 2 --port /dev/cu.usbserial-0002
+    Example 3 --port /dev/cu.usbmodem14101
+    Example 4 --port /dev/cu.usbmodem14201
+    Example 5 --port /dev/cu.usbmodem14301
 
     Returns the device path as a string, or None if nothing suitable is found.
     """
     ports = serial.tools.list_ports.comports()
     candidates: list[str] = []
 
-    print("Ports: "+{ports}) # List of Ports
+    # Debug print (list of ports):
+    print("Available serial ports:")
+    for p in ports:
+        print(f"  {p.device}  –  {p.description}")
 
     for p in ports:
         dev = p.device or ""
@@ -61,10 +72,10 @@ class SerialBackend(BaseBackend):
     - GUI can call get_latest() at any time without blocking.
 
     Channel order matches firmware CSV:
-        [0] -> A0  (yellow)
-        [1] -> A1  (orange)
-        [2] -> A2  (green)
-        [3] -> A3  (white)
+        [0] -> A0  (red)
+        [1] -> A1  (green)
+        [2] -> A2  (blue)
+        [3] -> A3  (yellow)
     """
 
     def __init__(

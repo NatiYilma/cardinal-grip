@@ -323,36 +323,42 @@ class PatientWindow(QWidget):
         if self.backend is not None:
             return
 
-        # Read what the user typed in the port box
+        # What the user typed in the "Serial port" box
         port_text = self.port_edit.text().strip()
 
+        # Baud rate
         try:
             baud = int(self.baud_edit.text().strip())
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid baud rate.")
             return
 
-        # If empty or "auto" -> let SerialBackend auto-detect
+        # Decide whether to auto-detect or use a fixed port
+        # NOTE: If empty or "auto" -> let SerialBackend auto-detect
+        
         if not port_text or port_text.lower() == "auto":
-            port_arg = None        # triggers auto_detect_port() inside SerialBackend.open()
+            # Use auto_detect_port() inside SerialBackend.open()
+            port_arg = None
+            port_label = "auto-detect"
         else:
-            port_arg = port_text   # explicit device path
+            port_arg = port_text
+            port_label = port_text
 
         try:
             # NOTE: For SimBackend, port/baud/timeout are accepted but ignored.
-            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
+            # For SimBackend this arg is ignored; for SerialBackend it matters.
+            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1) #4 channels
             self.backend.start()
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Serial error",
-                f"Failed to open {port_arg or '(auto-detect)'}:\n{e}",
+                f"Failed to open {port_label}:\n{e}",
             )
             self.backend = None
             return
 
-        # Show label for status line
-        port_label = port_arg if port_arg is not None else "(auto)"
+        # Connected Status at this point
         self.status_label.setText(f"Status: Connected to {port_label} @ {baud}")
         self.connect_button.setEnabled(False)
         self.disconnect_button.setEnabled(True)

@@ -10,8 +10,10 @@
 #   python firmware/fsr_output_reader.py               # auto-detect
 #   python firmware/fsr_output_reader.py --list        # list all ports
 #   python firmware/fsr_output_reader.py --port /dev/cu.usbserial-0001
-#   python firmware/fsr_output_reader.py --port /dev/cu.usbmodem14301
+#   python firmware/fsr_output_reader.py --port /dev/cu.usbserial-0002
 #   python firmware/fsr_output_reader.py --port /dev/cu.usbmodem14101
+#   python firmware/fsr_output_reader.py --port /dev/cu.usbmodem14201
+#   python firmware/fsr_output_reader.py --port /dev/cu.usbmodem14301
 
 import argparse
 import time

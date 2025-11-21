@@ -208,5 +208,37 @@
     "fingers_used": 0,
     "total_reps": 0,
     "csv_path": "/Users/Nati/Desktop/cardinal-grip/data/logs/patient_session_20251120_021018.csv"
+  },
+  {
+    "id": "game_20251120_180625",
+    "timestamp": "2025-11-20T18:06:36",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      17,
+      17,
+      17,
+      17
+    ],
+    "combo_reps": 12,
+    "fingers_used": 4,
+    "total_reps": 68,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251120_180637",
+    "timestamp": "2025-11-20T18:07:06",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      17,
+      17,
+      17,
+      17
+    ],
+    "combo_reps": 12,
+    "fingers_used": 4,
+    "total_reps": 68,
+    "csv_path": null
   }
 ]
