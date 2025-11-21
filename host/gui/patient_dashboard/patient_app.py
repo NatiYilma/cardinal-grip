@@ -1,4 +1,4 @@
-# host/gui/patient_app.py #version 9 – grid + hover crosshair + CSV thresholds
+# host/gui/patient_dashboard/patient_app.py  # version 9 – with latency via BaseBackend
 
 import os
 import sys
@@ -43,13 +43,12 @@ from host.gui.session_logging import log_session_completion
 # from comms.serial_backend import SerialBackend  # multi-channel backend
 #
 # Terminal command to show ports:
- #ls /dev/cu.usbserial* #ls /dev/cu.usbserial-0001
- #
+#   ls /dev/cu.usbserial*
+#   ls /dev/cu.usbserial-0001
+#
 # For simulated backend with keyboard-driven values, use:
-#from comms.sim_backend import SimBackend as SerialBackend  # simulated FSR + keyboard
+#   from comms.sim_backend import SimBackend as SerialBackend
 from comms.serial_backend import SerialBackend, auto_detect_port
-# Optional: print available ports for debugging
-# print(SerialBackend.list_ports())
 # ================================================================
 
 NUM_CHANNELS = 4
@@ -74,19 +73,16 @@ class PatientWindow(QWidget):
 
         # ---------- MAIN LAYOUT ----------
         main_layout = QVBoxLayout()
-        # main_layout.setContentsMargins(0, 0, 0, 0)
-        # main_layout.setSpacing(6)
         self.setLayout(main_layout)
 
         # ===== TOP: Serial config & connection =====
         top_row = QHBoxLayout()
-        # top_row.setContentsMargins(0, 0, 0, 0)   
-        # top_row.setSpacing(6)                    
 
         top_row.addWidget(QLabel("Serial port:"))
-        self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
+        self.port_edit = QLineEdit("")
         self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
+
         # --- Placeholder to auto-detected port, if any ---
         try:
             detected = auto_detect_port()
@@ -94,16 +90,14 @@ class PatientWindow(QWidget):
             detected = None
 
         if detected:
-            # This will appear as light/transparent text until user types
             self.port_edit.setPlaceholderText(detected)
         else:
-            # Fallback hint if nothing is detected
             self.port_edit.setPlaceholderText("Auto-detecting port...")
         top_row.addWidget(self.port_edit)
 
         top_row.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
-        self.baud_edit.setPlaceholderText("115200") # Set BAUD rate default 115200
+        self.baud_edit.setPlaceholderText("115200")
         self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
         self.baud_edit.setReadOnly(False)
@@ -130,7 +124,6 @@ class PatientWindow(QWidget):
         band_layout = QHBoxLayout()
         band_group.setLayout(band_layout)
 
-        # Min slider + numeric label
         band_layout.addWidget(QLabel("Min (ADC):"))
         self.target_min_slider = QSlider(Qt.Orientation.Horizontal)
         self.target_min_slider.setRange(0, 4095)
@@ -142,7 +135,6 @@ class PatientWindow(QWidget):
         self.target_min_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         band_layout.addWidget(self.target_min_value_label)
 
-        # Max slider + numeric label
         band_layout.addWidget(QLabel("Max (ADC):"))
         self.target_max_slider = QSlider(Qt.Orientation.Horizontal)
         self.target_max_slider.setRange(0, 4095)
@@ -211,7 +203,7 @@ class PatientWindow(QWidget):
             )
             self.curves.append(curve)
 
-        # ---- Threshold lines on plot (create BEFORE any call to _update_band_visuals) ----
+        # ---- Threshold lines on plot ----
         initial_tmin = self.target_min_slider.value()
         initial_tmax = self.target_max_slider.value()
 
@@ -228,14 +220,12 @@ class PatientWindow(QWidget):
         self.plot_widget.addItem(self.min_line)
         self.plot_widget.addItem(self.max_line)
 
-        # Ensure visuals match initial slider values
         self._update_band_visuals()
 
         # ===== PLOT ENHANCEMENTS: grid + hover crosshair =====
         self.plot_item = self.plot_widget.getPlotItem()
         self.plot_item.showGrid(x=True, y=True, alpha=0.3)
 
-        # Crosshair lines
         self.v_line = pg.InfiniteLine(
             angle=90,
             movable=False,
@@ -249,13 +239,11 @@ class PatientWindow(QWidget):
         self.plot_item.addItem(self.v_line, ignoreBounds=True)
         self.plot_item.addItem(self.h_line, ignoreBounds=True)
 
-        # Hover label (time + value)
         self.hover_label = QLabel("t = – s, Force = – ADC")
         self.hover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hover_label.setStyleSheet("color: gray;")
         main_layout.addWidget(self.hover_label)
 
-        # Connect mouse move to update crosshair
         self.plot_widget.scene().sigMouseMoved.connect(self._on_plot_mouse_moved)
 
         # ===== BOTTOM: Reset & Save =====
@@ -276,22 +264,14 @@ class PatientWindow(QWidget):
         self.timer.setInterval(20)  # 20 ms -> ~50 Hz
         self.timer.timeout.connect(self.poll_sensor)
 
-        # ==== SIM BACKEND / KEYBOARD INPUT HOOK (comment out for real hardware) ====
         self.setFocus()
-        # ==== END SIM BACKEND HOOK ================================================
 
     # ---------- BAND VISUALS / HELPERS ----------
 
     def _update_band_visuals(self):
-        """
-        Update numeric labels and threshold lines on the plot.
-        This is also aliased as _update_band_labels() so the dual launcher
-        can call it without caring about the exact name.
-        """
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
-        # Enforce Min <= Max logically
         if tmax < tmin:
             tmax = tmin
             self.target_max_slider.blockSignals(True)
@@ -301,22 +281,17 @@ class PatientWindow(QWidget):
         self.target_min_value_label.setText(str(tmin))
         self.target_max_value_label.setText(str(tmax))
 
-        # Update threshold lines on plot
         if hasattr(self, "min_line") and self.min_line is not None:
             self.min_line.setPos(tmin)
         if hasattr(self, "max_line") and self.max_line is not None:
             self.max_line.setPos(tmax)
 
-    # Alias so patient_dual_launcher can call gw._update_band_labels()
     def _update_band_labels(self):
         self._update_band_visuals()
 
     # ---------- HOVER HANDLER ----------
 
     def _on_plot_mouse_moved(self, pos):
-        """
-        Update crosshair + label when the mouse moves over the plot.
-        """
         if not self.times:
             return
 
@@ -338,14 +313,11 @@ class PatientWindow(QWidget):
         if self.backend is not None:
             return
 
-        # What the user typed in the "Serial port" box
         port_text = self.port_edit.text().strip()
-
-        # Baud rate
         baud_text = self.baud_edit.text().strip()
 
         if not baud_text:
-            baud = 115200 # Default Baud rate
+            baud = 115200
         else:
             try:
                 baud = int(baud_text)
@@ -356,11 +328,7 @@ class PatientWindow(QWidget):
             QMessageBox.warning(self, "Error", "Baud rate must be positive.")
             return
 
-        # Decide whether to auto-detect or use a fixed port
-        # NOTE: If empty or "auto" -> let SerialBackend auto-detect
-        
         if not port_text or port_text.lower() == "auto":
-            # Use auto_detect_port() inside SerialBackend.open()
             port_arg = None
             port_label = "auto-detect"
         else:
@@ -368,9 +336,7 @@ class PatientWindow(QWidget):
             port_label = port_text
 
         try:
-            # NOTE: For SimBackend, port/baud/timeout are accepted but ignored.
-            # For SimBackend this arg is ignored; for SerialBackend it matters.
-            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1) #4 channels
+            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
             self.backend.start()
         except Exception as e:
             QMessageBox.critical(
@@ -381,7 +347,6 @@ class PatientWindow(QWidget):
             self.backend = None
             return
 
-        # Connected Status at this point
         actual_port = getattr(self.backend, "port", None) or "(auto)"
         self.status_label.setText(f"Status: Connected to {actual_port} @ {baud}")
         self.connect_button.setEnabled(False)
@@ -424,25 +389,25 @@ class PatientWindow(QWidget):
         if self.backend is None:
             return
 
-        now_gui = time.time() # Latency measurement from GUI
-        
-        vals = self.backend.get_latest()  # expected [v0, v1, v2, v3]
-        
+        now_gui = time.time()
+
+        vals = self.backend.get_latest()
         if vals is None:
             return
-        
-        # Latency measurement
-        try:
-            last_ts = self.backend.get_last_timestamp()
-        except AttributeError:
-            last_ts = None
 
-        if last_ts:
+        # Latency measurement via BaseBackend API
+        last_ts = None
+        if hasattr(self.backend, "get_last_timestamp"):
+            last_ts = self.backend.get_last_timestamp()
+
+        if last_ts is not None:
             age_ms = (now_gui - last_ts) * 1000.0
             # print every ~10th tick to avoid spam
             if int(now_gui * 50) % 10 == 0:
-                print(f"[Monitor: latency] age={age_ms:5.1f} ms, vals={vals}") #age ~ 5–25 ms fast pipeline; 100–300 ms delayed pipeline
-        
+                print(f"[Monitor: latency] age={age_ms:5.1f} ms, vals={vals}")
+                # ~5–25 ms → fast pipeline
+                # 100–300+ ms → delayed pipeline
+
         if isinstance(vals, (int, float)):
             vals = [int(vals)] * NUM_CHANNELS
         elif isinstance(vals, (list, tuple)):
@@ -463,18 +428,15 @@ class PatientWindow(QWidget):
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
-        # Collect per-channel zone to summarise in status
         zones = []
 
         for c in range(NUM_CHANNELS):
             v = max(0, min(4095, int(vals[c])))
             self.values[c].append(v)
 
-            # Update bar and label
             self.bar_widgets[c].setValue(v)
             self.value_labels[c].setText(f"Force: {v}")
 
-            # Determine zone for status
             if tmin <= v <= tmax:
                 zone = "in"
             elif v < tmin:
@@ -483,7 +445,6 @@ class PatientWindow(QWidget):
                 zone = "high"
             zones.append(zone)
 
-        # Multi-channel status summary
         parts = []
         for name, zone in zip(CHANNEL_NAMES, zones):
             if zone == "in":
@@ -495,7 +456,6 @@ class PatientWindow(QWidget):
             parts.append(f"{name}:{sym}")
         self.status_label.setText("Status: " + "  ".join(parts))
 
-        # Update plot
         t_list = list(self.times)
         for c in range(NUM_CHANNELS):
             self.curves[c].setData(t_list, list(self.values[c]))
@@ -519,10 +479,6 @@ class PatientWindow(QWidget):
     # ---------- CSV SAVING ----------
 
     def save_csv(self):
-        """
-        Save the current session's data:
-            time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc, tmin_adc, tmax_adc
-        """
         if not self.times:
             QMessageBox.information(self, "No data", "No samples to save yet.")
             return
@@ -543,7 +499,6 @@ class PatientWindow(QWidget):
         if not path:
             return
 
-        # Snapshot thresholds at save time
         tmin = self.target_min_slider.value()
         tmax = self.target_max_slider.value()
 
@@ -567,12 +522,11 @@ class PatientWindow(QWidget):
                     writer.writerow(row)
 
             QMessageBox.information(self, "Saved", f"Session saved to:\n{path}")
-            # --- Log this monitor session in JSON + SQLite (no per-finger reps) ---
             try:
                 log_session_completion(
                     mode="monitor",
                     source="patient_app",
-                    reps_per_channel=None,  # we don't count reps here
+                    reps_per_channel=None,
                     combo_reps=0,
                     csv_path=path,
                 )

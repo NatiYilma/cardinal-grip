@@ -12,9 +12,13 @@ class BaseBackend(Protocol):
 
     Minimal contract:
       - start() / stop(): manage any background worker
-      - get_latest(): non-blocking, returns the most recent 4-channel sample
+      - get_latest(): non-blocking, returns the most recent sample
       - send_command(): optional host -> device control channel
       - handle_char(): optional, for keyboard-driven simulation
+
+    Optional but recommended:
+      - get_last_timestamp(): host timestamp (time.time()) when the last
+        sample was updated. Backends that don't track this may return None.
 
     Backends may also expose:
       - get_window(n): last n samples for stats / smoothing
@@ -40,5 +44,12 @@ class BaseBackend(Protocol):
         """
         Optional key input channel (used by SimBackend).
         Hardware backends may safely no-op.
+        """
+        ...
+
+    def get_last_timestamp(self) -> Optional[float]:
+        """
+        Optional: return the host-side timestamp (time.time()) when the last
+        sample was updated. Backends that don't track this may return None.
         """
         ...

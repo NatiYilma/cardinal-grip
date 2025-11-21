@@ -1,4 +1,4 @@
-# comms/serial_backend.py #version 5
+# comms/serial_backend.py  # version 9 with latency + BaseBackend API
 
 import threading
 import time
@@ -61,18 +61,20 @@ def auto_detect_port() -> Optional[str]:
 
 # ================================================================
 
+
 class SerialBackend(BaseBackend):
     """
-    Threaded serial backend for reading *four* FSR channels from the ESP32.
+    Threaded serial backend for reading *N* FSR channels from the ESP32.
 
     - Opens a serial port.
     - Starts a background thread that reads lines continuously.
-    - Expects each line to include 4 ADC values, either as:
+    - Expects each line to include num_channels ADC values, either as:
         "v0,v1,v2,v3"
       or with metadata prefix, e.g.:
         "seq,t_ms,v0,v1,v2,v3"
-      In all cases, the *last* 4 comma-separated fields are treated as channels.
-    - Stores the most recent list of 4 integers.
+      In all cases, the *last* num_channels comma-separated fields
+      are treated as channels.
+    - Stores the most recent list of ints.
     - GUI can call get_latest() at any time without blocking.
 
     Channel order matches firmware CSV:
@@ -91,7 +93,9 @@ class SerialBackend(BaseBackend):
         history_size: int = 0,        # >0 => keep last N samples for stats
         reconnect_backoff: float = 1.0,
     ):
-        self._last_timestamp = 0.0 # Timestamp for measuring latency
+        # Timestamp of when _latest was last updated (host time.time())
+        self._last_timestamp: float = 0.0
+
         self.port = port or None
         self.baud = baud
         self.timeout = timeout
@@ -102,7 +106,7 @@ class SerialBackend(BaseBackend):
         self._thread: Optional[threading.Thread] = None
         self._running = False
 
-        # latest will be a list of ints: [ch0, ch1, ch2, ch3]
+        # latest will be a list of ints: [ch0, ch1, ...]
         self._latest: List[int] = [0] * self.num_channels
         self._lock = threading.Lock()
 
@@ -175,7 +179,7 @@ class SerialBackend(BaseBackend):
 
     def _read_loop(self) -> None:
         """
-        Continuously read lines from serial and store the most recent 4-channel vector.
+        Continuously read lines from serial and store the most recent vector.
 
         Runs in a background thread and will attempt to reconnect if the
         device disappears.
@@ -223,7 +227,7 @@ class SerialBackend(BaseBackend):
 
             with self._lock:
                 self._latest = vals
-                self._last_timestamp = ts # Timestamp latency reading
+                self._last_timestamp = ts
                 if self._history is not None:
                     self._history.append((ts, list(vals)))
 
@@ -234,12 +238,21 @@ class SerialBackend(BaseBackend):
 
     def get_latest(self) -> List[int]:
         """
-        Return the most recent [v0, v1, v2, v3] list.
+        Return the most recent [v0, v1, ...] list.
 
         Non-blocking and safe to call from GUI thread.
         """
         with self._lock:
             return list(self._latest)
+
+    def get_last_timestamp(self) -> Optional[float]:
+        """
+        Return host timestamp (time.time()) of the last sample update,
+        or None if we have never seen a sample yet.
+        """
+        with self._lock:
+            ts = self._last_timestamp
+        return ts or None
 
     def get_window(self, n: int) -> List[List[int]]:
         """
@@ -300,7 +313,3 @@ class SerialBackend(BaseBackend):
         for p in serial.tools.list_ports.comports():
             out.append((p.device, p.description))
         return out
-    
-    def get_last_timestamp(self) -> float:
-        with self._lock:
-            return self._last_timestamp

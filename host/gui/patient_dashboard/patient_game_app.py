@@ -1,4 +1,4 @@
-# host/gui/patient_dashboard/patient_game_app.py
+# host/gui/patient_dashboard/patient_game_app.py  # version 9 – with latency via BaseBackend
 
 import os
 import sys
@@ -24,7 +24,6 @@ from PyQt6.QtGui import QFont, QPainter, QPen, QColor
 from PyQt6.QtMultimedia import QSoundEffect
 
 # -------- PATH SETUP --------
-# This file is .../cardinal-grip/host/gui/patient_dashboard/patient_game_app.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
 HOST_DIR = os.path.dirname(GUI_DIR)                 # .../host
@@ -33,21 +32,9 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)            # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# Session logging
 from host.gui.session_logging import log_session_completion
 
-# ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
-# For real ESP32-S3 over serial, use:
-# from comms.serial_backend import SerialBackend  # multi-channel backend
-#
-# Terminal command to show ports:
- #ls /dev/cu.usbserial* #ls /dev/cu.usbserial-0001
- #
-# For simulated backend with keyboard-driven values, use:
-#from comms.sim_backend import SimBackend as SerialBackend  # simulated FSR + keyboard
 from comms.serial_backend import SerialBackend, auto_detect_port
-# Optional: print available ports for debugging
-# print(SerialBackend.list_ports())
 # ================================================================
 
 
@@ -71,7 +58,6 @@ class ThresholdProgressBar(QProgressBar):
         self.update()
 
     def paintEvent(self, event):
-        # Draw normal bar
         super().paintEvent(event)
 
         if self._min_thresh is None or self._max_thresh is None:
@@ -97,7 +83,7 @@ class ThresholdProgressBar(QProgressBar):
 
         def draw_for_value(v):
             v_clamped = max(minimum, min(maximum, v))
-            frac = (v_clamped - minimum) / span  # 0 at min → 1 at max
+            frac = (v_clamped - minimum) / span
             y = rect.bottom() - frac * rect.height()
             painter.drawLine(rect.left() + 2, int(y), rect.right() - 2, int(y))
 
@@ -115,7 +101,6 @@ class PatientGameWindow(QWidget):
         self.resize(1100, 700)
         print("Patient Game Window Launched and Running")
 
-        # Allow keyboard events for SimBackend
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         # --- Backend and state ---
@@ -129,9 +114,8 @@ class PatientGameWindow(QWidget):
         self.combo_reps = 0
         self.last_all_in_band = False
 
-        # Logging session
         self.session_start_time: float | None = None
-        self.current_session_id: str | None = None   # <<< define this here
+        self.current_session_id: str | None = None
 
         # Persistent stats
         self.reps_per_channel = [0] * NUM_CHANNELS
@@ -160,39 +144,33 @@ class PatientGameWindow(QWidget):
 
         # === UI ===
         main_layout = QVBoxLayout()
-        # main_layout.setContentsMargins(0, 0, 0, 0)
-        # main_layout.setSpacing(6)
         self.setLayout(main_layout)
 
         # ----- Top: serial controls -----
         top_row = QHBoxLayout()
-        # top_row.setContentsMargins(0, 0, 0, 0)   
-        # top_row.setSpacing(6)  
 
         top_row.addWidget(QLabel("Serial port:"))
-        self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
+        self.port_edit = QLineEdit("")
         self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
-        # --- Placeholder to auto-detected port, if any ---
+
         try:
             detected = auto_detect_port()
         except Exception:
             detected = None
 
         if detected:
-            # This will appear as light/transparent text until user types
             self.port_edit.setPlaceholderText(detected)
         else:
-            # Fallback hint if nothing is detected
             self.port_edit.setPlaceholderText("Auto-detecting port...")
         top_row.addWidget(self.port_edit)
 
         top_row.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
-        self.baud_edit.setPlaceholderText("115200") # Set BAUD rate default 115200
+        self.baud_edit.setPlaceholderText("115200")
         self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
-        self.baud_edit.setReadOnly(False) # Read-Only for Patient Side
+        self.baud_edit.setReadOnly(False)
         top_row.addWidget(self.baud_edit)
 
         self.connect_button = QPushButton("Connect")
@@ -254,7 +232,6 @@ class PatientGameWindow(QWidget):
 
         main_layout.addWidget(band_group)
 
-        # Enforce Min ≤ Max
         self.target_min_slider.valueChanged.connect(self._on_min_slider_changed)
         self.target_max_slider.valueChanged.connect(self._on_max_slider_changed)
 
@@ -303,7 +280,6 @@ class PatientGameWindow(QWidget):
 
             center_row.addLayout(col)
 
-        # Initialize thresholds on bars
         self._update_band_labels()
 
         # ----- All-fingers combo group -----
@@ -452,20 +428,16 @@ class PatientGameWindow(QWidget):
         self._update_band_labels()
 
     # -------- Connection / session --------
-    # ---------- CONNECTION LOGIC ----------
 
     def handle_connect(self):
         if self.backend is not None:
             return
 
-        # What the user typed in the "Serial port" box
         port_text = self.port_edit.text().strip()
-
-        # Baud rate
         baud_text = self.baud_edit.text().strip()
 
         if not baud_text:
-            baud = 115200 # Default Baud rate
+            baud = 115200
         else:
             try:
                 baud = int(baud_text)
@@ -476,11 +448,7 @@ class PatientGameWindow(QWidget):
             QMessageBox.warning(self, "Error", "Baud rate must be positive.")
             return
 
-        # Decide whether to auto-detect or use a fixed port
-        # NOTE: If empty or "auto" -> let SerialBackend auto-detect
-        
         if not port_text or port_text.lower() == "auto":
-            # Use auto_detect_port() inside SerialBackend.open()
             port_arg = None
             port_label = "auto-detect"
         else:
@@ -488,9 +456,7 @@ class PatientGameWindow(QWidget):
             port_label = port_text
 
         try:
-            # NOTE: For SimBackend, port/baud/timeout are accepted but ignored.
-            # For SimBackend this arg is ignored; for SerialBackend it matters.
-            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01,num_channels=1) #4 channels
+            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
             self.backend.start()
         except Exception as e:
             QMessageBox.critical(
@@ -501,7 +467,6 @@ class PatientGameWindow(QWidget):
             self.backend = None
             return
 
-        # Connected Status at this point
         actual_port = getattr(self.backend, "port", None) or "(auto)"
         self.status_label.setText(f"Status: Connected to {actual_port} @ {baud}")
         self.connect_button.setEnabled(False)
@@ -532,7 +497,6 @@ class PatientGameWindow(QWidget):
         self.emoji_label.setText("")
 
         self.session_start_time = time.time()
-        # Generate a unique-ish session id for logging
         self.current_session_id = datetime.now().strftime("game_%Y%m%d_%H%M%S")
 
         self.timer.start()
@@ -542,7 +506,7 @@ class PatientGameWindow(QWidget):
             "Status: Session running – squeeze to hit the green zone!"
         )
 
-        self.setFocus()  # for keyboard sim
+        self.setFocus()
 
     def stop_session(self):
         if self.timer.isActive():
@@ -550,7 +514,6 @@ class PatientGameWindow(QWidget):
             self.sessions_completed += 1
             self._save_stats()
 
-            # ---- Log this session to JSON + SQLite for dashboards ----
             try:
                 log_session_completion(
                     mode="game",
@@ -582,24 +545,23 @@ class PatientGameWindow(QWidget):
         if self.backend is None:
             return
 
-        now_gui = time.time() # Latency measurement from GUI
-        
-        vals = self.backend.get_latest()  # expected [v0, v1, v2, v3]
-        
+        now_gui = time.time()
+
+        vals = self.backend.get_latest()
         if vals is None:
             return
-        
-        # Latency measurement
-        try:
-            last_ts = self.backend.get_last_timestamp()
-        except AttributeError:
-            last_ts = None
 
-        if last_ts:
+        # Latency measurement via BaseBackend API
+        last_ts = None
+        if hasattr(self.backend, "get_last_timestamp"):
+            last_ts = self.backend.get_last_timestamp()
+
+        if last_ts is not None:
             age_ms = (now_gui - last_ts) * 1000.0
-            # print every ~10th tick to avoid spam
             if int(now_gui * 50) % 10 == 0:
-                print(f"[Game: latency] age={age_ms:5.1f} ms, vals={vals}") #age ~ 5–25 ms fast pipeline; 100–300 ms delayed pipeline
+                print(f"[Game: latency] age={age_ms:5.1f} ms, vals={vals}")
+                # ~5–25 ms → fast pipeline
+                # 100–300+ ms → delayed pipeline
 
         if isinstance(vals, (int, float)):
             vals = [vals] * NUM_CHANNELS
@@ -625,7 +587,6 @@ class PatientGameWindow(QWidget):
             self.bar_widgets[i].setValue(val)
             self.value_labels[i].setText(f"Force: {val}")
 
-            # Zone + color mapping
             if val < tmin:
                 zone = "low"
                 frac_below = (val / tmin) if tmin > 0 else 0.0
@@ -649,11 +610,9 @@ class PatientGameWindow(QWidget):
             in_band_flags[i] = (zone == "in_band")
             self._set_bar_color(self.bar_widgets[i], color)
 
-            # Entered band → applepay
             if zone == "in_band" and not self.in_band_prev[i] and self.timer.isActive():
                 self._play_sound(self.sounds.get("applepay"))
 
-            # Per-channel countdown
             if self.timer.isActive() and zone == "in_band":
                 self.hold_time[i] += dt
                 remaining = max(0.0, HOLD_SECONDS - self.hold_time[i])
@@ -673,7 +632,6 @@ class PatientGameWindow(QWidget):
 
             self.in_band_prev[i] = (zone == "in_band")
 
-        # All-fingers combo
         all_in_band = self.timer.isActive() and all(in_band_flags)
 
         if all_in_band:
