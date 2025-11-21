@@ -189,8 +189,10 @@ class PatientGameWindow(QWidget):
 
         top_row.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
+        self.baud_edit.setPlaceholderText("115200") # Set BAUD rate default 115200
         self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
+        self.baud_edit.setReadOnly(False) # Read-Only for Patient Side
         top_row.addWidget(self.baud_edit)
 
         self.connect_button = QPushButton("Connect")
@@ -355,7 +357,7 @@ class PatientGameWindow(QWidget):
 
         # Timer
         self.timer = QTimer()
-        self.timer.setInterval(50)  # 20 Hz
+        self.timer.setInterval(20)  # 20 ms -> ~50 Hz
         self.timer.timeout.connect(self.game_tick)
 
     # -------- Audio helpers --------
@@ -460,10 +462,18 @@ class PatientGameWindow(QWidget):
         port_text = self.port_edit.text().strip()
 
         # Baud rate
-        try:
-            baud = int(self.baud_edit.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid baud rate.")
+        baud_text = self.baud_edit.text().strip()
+
+        if not baud_text:
+            baud = 115200 # Default Baud rate
+        else:
+            try:
+                baud = int(baud_text)
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid baud rate.")
+                return
+        if baud <= 0:
+            QMessageBox.warning(self, "Error", "Baud rate must be positive.")
             return
 
         # Decide whether to auto-detect or use a fixed port
@@ -572,9 +582,24 @@ class PatientGameWindow(QWidget):
         if self.backend is None:
             return
 
-        vals = self.backend.get_latest()
+        now_gui = time.time() # Latency measurement from GUI
+        
+        vals = self.backend.get_latest()  # expected [v0, v1, v2, v3]
+        
         if vals is None:
             return
+        
+        # Latency measurement
+        try:
+            last_ts = self.backend.get_last_timestamp()
+        except AttributeError:
+            last_ts = None
+
+        if last_ts:
+            age_ms = (now_gui - last_ts) * 1000.0
+            # print every ~10th tick to avoid spam
+            if int(now_gui * 50) % 10 == 0:
+                print(f"[Game: latency] age={age_ms:5.1f} ms, vals={vals}") #age ~ 5–25 ms fast pipeline; 100–300 ms delayed pipeline
 
         if isinstance(vals, (int, float)):
             vals = [vals] * NUM_CHANNELS

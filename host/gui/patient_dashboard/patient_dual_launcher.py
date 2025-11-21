@@ -40,10 +40,14 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# Import the existing GUIs (they already choose SimBackend vs SerialBackend)
+# Import the existing GUIs (they already choose backend i.e. SimBackend vs SerialBackend)
 from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
 
+from comms.serial_backend import auto_detect_port
+# Optional: print available ports for debugging
+# print(SerialBackend.list_ports())
+# ================================================================
 
 class DualPatientGameWindow(QWidget):
     """
@@ -89,12 +93,26 @@ class DualPatientGameWindow(QWidget):
         self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
         self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
+        # --- Placeholder to auto-detected port, if any ---
+        try:
+            detected = auto_detect_port()
+        except Exception:
+            detected = None
+
+        if detected:
+            # This will appear as light/transparent text until user types
+            self.port_edit.setPlaceholderText(detected)
+        else:
+            # Fallback hint if nothing is detected
+            self.port_edit.setPlaceholderText("Auto-detecting port...")
         shared_bar.addWidget(self.port_edit)
 
         shared_bar.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
+        self.baud_edit.setPlaceholderText("115200") # Set BAUD rate default 115200
         self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
+        self.baud_edit.setReadOnly(False)
         shared_bar.addWidget(self.baud_edit)
 
         self.connect_button = QPushButton("Connect (shared)")

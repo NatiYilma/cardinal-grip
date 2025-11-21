@@ -10,7 +10,10 @@ import serial.tools.list_ports
 
 from .base_backend import BaseBackend
 
+# ================================================================
 
+
+# ================ Auto Detect Port ==========================================
 def auto_detect_port() -> Optional[str]:
     """
     Try to automatically find a USB serial port that looks like an ESP32 / Feather.
@@ -56,6 +59,7 @@ def auto_detect_port() -> Optional[str]:
     candidates.sort(key=lambda d: (not d.startswith("/dev/cu.usbmodem"), d))
     return candidates[0]
 
+# ================================================================
 
 class SerialBackend(BaseBackend):
     """
@@ -87,6 +91,7 @@ class SerialBackend(BaseBackend):
         history_size: int = 0,        # >0 => keep last N samples for stats
         reconnect_backoff: float = 1.0,
     ):
+        self._last_timestamp = 0.0 # Timestamp for measuring latency
         self.port = port or None
         self.baud = baud
         self.timeout = timeout
@@ -218,6 +223,7 @@ class SerialBackend(BaseBackend):
 
             with self._lock:
                 self._latest = vals
+                self._last_timestamp = ts # Timestamp latency reading
                 if self._history is not None:
                     self._history.append((ts, list(vals)))
 
@@ -294,3 +300,7 @@ class SerialBackend(BaseBackend):
         for p in serial.tools.list_ports.comports():
             out.append((p.device, p.description))
         return out
+    
+    def get_last_timestamp(self) -> float:
+        with self._lock:
+            return self._last_timestamp
