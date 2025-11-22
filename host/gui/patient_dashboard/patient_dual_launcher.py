@@ -1,4 +1,4 @@
-# host/gui/patient_dual_launcher.py  #version 7
+# host/gui/patient_dual_launcher.py  #version 10
 
 """
 Dual view launcher:
@@ -60,14 +60,19 @@ class DualPatientGameWindow(QWidget):
       * exposes one shared Min/Max ADC slider pair
       * pushes thresholds into both child windows.
     """
+    _instance_count = 0
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        type(self)._instance_count += 1
+        self._id = type(self)._instance_count
 
         self.setWindowTitle("Cardinal Grip – Dual Patient View")
         self.resize(1200, 750)
         self.setMinimumSize(1100, 700)
-        print("Patient Dual Window Launched and Running")
+
+        print(f"PatientDualWindow #{self._id} created. Total = {type(self)._instance_count}")
 
         self.shared_backend = None
         self.current_session_id: str | None = None
@@ -187,8 +192,9 @@ class DualPatientGameWindow(QWidget):
         left_layout = QVBoxLayout()
         left_group.setLayout(left_layout)
 
-        self.game_window = PatientGameWindow()
-        self.game_window.setParent(self)
+        # self.game_window = PatientGameWindow()
+        # self.game_window.setParent(self)
+        self.game_window = PatientGameWindow(self)
 
         # Hide local connection/session controls: dual view owns them
         self.game_window.connect_button.hide()
@@ -216,8 +222,9 @@ class DualPatientGameWindow(QWidget):
         right_layout = QVBoxLayout()
         right_group.setLayout(right_layout)
 
-        self.patient_window = PatientWindow()
-        self.patient_window.setParent(self)
+        # self.patient_window = PatientWindow()
+        # self.patient_window.setParent(self)
+        self.patient_window = PatientWindow(self)
 
         self.patient_window.connect_button.hide()
         self.patient_window.disconnect_button.hide()
@@ -341,6 +348,8 @@ class DualPatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(True)
         self.start_button.setEnabled(True)
 
+        print(f"PatientDualWindow #{self._id} is Connected")
+
     def handle_shared_disconnect(self):
         """Stop session and disconnect both child windows."""
         self.handle_stop_session()
@@ -356,6 +365,8 @@ class DualPatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
 
+        print(f"PatientDualWindow #{self._id} is Disconnected")
+        
     # ---------- SESSION CONTROL + OPTIONAL JSON LOGGING ----------
 
     def _make_new_session_id(self) -> str:
@@ -392,6 +403,8 @@ class DualPatientGameWindow(QWidget):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
+        print(f"PatientDualWindow #{self._id} Session Started")
+
     def handle_stop_session(self):
         if hasattr(self.game_window, "stop_session"):
             self.game_window.stop_session()
@@ -407,7 +420,9 @@ class DualPatientGameWindow(QWidget):
         self.session_label.setText("Current session: –")
         self.current_session_id = None
 
-    # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) ----------
+        print(f"PatientDualWindow #{self._id} Session Stopped")
+
+    # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) START ----------
 
     def keyPressEvent(self, event):
         """Forward key events to the game window so SimBackend keyboard control works."""
@@ -415,13 +430,33 @@ class DualPatientGameWindow(QWidget):
 
     def keyReleaseEvent(self, event):
         self.game_window.keyReleaseEvent(event)
+    
+    # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) END ----------
+    
+    # ---------- Patient Dual Window Instance Close ----------
+
+    def closeEvent(self, event):
+        # Ensure we cleanly disconnect backend/timer if still active; avoid zombie threads
+        if self.shared_backend is not None:
+            self.handle_shared_disconnect()
+
+        print(f"PatientDualWindow #{self._id} is closing...")
+        type(self)._instance_count -= 1
+        print(f"Remaining PatientDualWindows = {type(self)._instance_count}")
+
+        super().closeEvent(event)
 
 
 def main():
     app = QApplication(sys.argv)
     win = DualPatientGameWindow()
     win.show()
-    sys.exit(app.exec())
+    print("Dual Patient Qt App Launched")
+
+    exit_code = app.exec()  
+
+    print("Dual Patient Qt App Closed")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

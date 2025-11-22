@@ -1,4 +1,4 @@
-# host/gui/patient_dashboard/patient_app.py  # version 10 – with latency via BaseBackend
+# host/gui/patient_dashboard/patient_app.py  #version 10
 
 import os
 import sys
@@ -59,8 +59,8 @@ CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digi
 class PatientWindow(QWidget):
     _instance_count = 0
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
         type(self)._instance_count += 1
         self._id = type(self)._instance_count
@@ -563,7 +563,6 @@ class PatientWindow(QWidget):
         print(f"Remaining PatientWindows = {type(self)._instance_count}")
 
         super().closeEvent(event)
-
 
 
 def main():

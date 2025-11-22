@@ -1,4 +1,4 @@
-# host/gui/patient_dashboard/patient_dashboard.py  # version 10 – with latency via BaseBackend
+# host/gui/patient_dashboard/patient_dashboard.py  #version 10
 
 import os
 import sys
@@ -111,10 +111,18 @@ class DashboardPage(QWidget):
       - Buttons to open game / monitor / dual / calendar
       - Lightweight summary using sessions_log.json
     """
+    _instance_count = 0
 
     def __init__(self, shell_window: "PatientShellWindow"):
         super().__init__()
+        type(self)._instance_count += 1
+        self._id = type(self)._instance_count
+        
         self.shell = shell_window
+        print(f"PatientDashboardPage #{self._id} created. Total = {type(self)._instance_count}")
+
+        # Track destruction reliably
+        self.destroyed.connect(self._on_destroyed)
 
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -171,6 +179,11 @@ class DashboardPage(QWidget):
     def refresh(self):
         """Called when page is re-shown, to update last session text."""
         self.last_session_label.setText(_latest_session_summary())
+    
+    def _on_destroyed(self, obj=None):
+        print(f"PatientDashboardPage #{self._id} destroyed")
+        type(self)._instance_count -= 1
+        print(f"Remaining PatientDashboardPages = {type(self)._instance_count}")
 
 
 # =====================================================================
@@ -566,16 +579,24 @@ class SettingsPage(QWidget):
 # =====================================================================
 
 class PatientShellWindow(QWidget):
+    _instance_count = 0
+
     def __init__(self):
         super().__init__()
+
+        type(self)._instance_count += 1
+        self._id = type(self)._instance_count
 
         self.setWindowTitle("Cardinal Grip – Patient")
         self.resize(900, 600)
 
+        print(f"PatientShellWindow#{self._id} created. Total = {type(self)._instance_count}")
+
+        # Child window references
         self.game_win = None
         self.patient_win = None
         self.dual_win = None
-        self.calendar_popup = None  # if you still ever want a stand-alone calendar
+        self.calendar_popup = None  # optional stand-alone calendar
 
         self.sidebar_expanded = True
         self.expanded_sidebar_width = 220
@@ -696,25 +717,40 @@ class PatientShellWindow(QWidget):
         elif key == "notifications":
             self.notifications_page.refresh()
 
-    # ----- Open external windows (reuse existing logic) -----
+    # ----- Open external windows (child windows of the shell) -----
 
     def open_game(self):
         if self.game_win is None:
-            self.game_win = PatientGameWindow()
+            # self.game_win = PatientGameWindow(self)  # parent = shell
+            self.game_win = PatientGameWindow()  # parent = shell
+            self.game_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            self.game_win.destroyed.connect(
+                lambda _obj=None: setattr(self, "game_win", None)
+            )
         self.game_win.show()
         self.game_win.raise_()
         self.game_win.activateWindow()
 
     def open_monitor(self):
         if self.patient_win is None:
-            self.patient_win = PatientWindow()
+            # self.patient_win = PatientWindow(self)  # parent = shell
+            self.patient_win = PatientWindow()  # parent = shell
+            self.patient_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            self.patient_win.destroyed.connect(
+                lambda _obj=None: setattr(self, "patient_win", None)
+            )
         self.patient_win.show()
         self.patient_win.raise_()
         self.patient_win.activateWindow()
 
     def open_dual(self):
         if self.dual_win is None:
-            self.dual_win = DualPatientGameWindow()
+            # self.dual_win = DualPatientGameWindow(self)  # parent = shell
+            self.dual_win = DualPatientGameWindow()  # parent = shell
+            self.dual_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            self.dual_win.destroyed.connect(
+                lambda _obj=None: setattr(self, "dual_win", None)
+            )
         self.dual_win.show()
         self.dual_win.raise_()
         self.dual_win.activateWindow()
@@ -725,10 +761,33 @@ class PatientShellWindow(QWidget):
         Not currently used, but kept for flexibility.
         """
         if self.calendar_popup is None:
-            self.calendar_popup = DashboardWindow()
+            self.calendar_popup = DashboardWindow(self)  # parent = shell
+            self.calendar_popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            self.calendar_popup.destroyed.connect(
+                lambda _obj=None: setattr(self, "calendar_popup", None)
+            )
         self.calendar_popup.show()
         self.calendar_popup.raise_()
         self.calendar_popup.activateWindow()
+
+    # ----- Shell close: kill everything cleanly -----
+
+    def closeEvent(self, event):
+        print("PatientShellWindow closing, closing child windows...")
+
+        for attr in ("game_win", "patient_win", "dual_win", "calendar_popup"):
+            win = getattr(self, attr, None)
+            if win is not None:
+                try:
+                    win.close()
+                except Exception as e:
+                    print(f"Error closing {attr}: {e}")
+
+        print(f"PatientShellWindow #{self._id} is closing...")
+        type(self)._instance_count -= 1
+        print(f"Remaining PatientShellWindows = {type(self)._instance_count}")
+
+        super().closeEvent(event)
 
 
 # =====================================================================
@@ -739,8 +798,12 @@ def main():
     app = QApplication(sys.argv)
     win = PatientShellWindow()
     win.show()
-    sys.exit(app.exec())
+    print("Patient Dashboard Qt App Launched")
 
+    exit_code = app.exec()  
+
+    print("Patient Dashboard Qt App Closed")
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()

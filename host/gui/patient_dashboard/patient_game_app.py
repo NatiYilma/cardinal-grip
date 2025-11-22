@@ -1,4 +1,4 @@
-# host/gui/patient_dashboard/patient_game_app.py  # version 10 – with latency via BaseBackend
+# host/gui/patient_dashboard/patient_game_app.py  #version 10
 
 import os
 import sys
@@ -108,8 +108,8 @@ class ThresholdProgressBar(QProgressBar):
 class PatientGameWindow(QWidget):
     _instance_count = 0
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
         type(self)._instance_count += 1
         self._id = type(self)._instance_count
@@ -488,15 +488,18 @@ class PatientGameWindow(QWidget):
             return
 
         actual_port = getattr(self.backend, "port", None) or "(auto)"
-        self.status_label.setText(f"Status: Connected to {actual_port} @ {baud}")
+        self.status_label.setText(
+            f"Status: Connected to {actual_port} @ {baud} – click 'Start Session' to begin."
+        )
         self.connect_button.setEnabled(False)
         self.disconnect_button.setEnabled(True)
+        self.start_button.setEnabled(True)
 
         self.start_session()
         self.start_time = time.time()
         self.timer.start()
 
-        print(f"PatientGameWindow #{self._id} Connected and Session Started")
+        print(f"PatientGameWindow #{self._id} is Connected")
 
     def handle_disconnect(self):
         self.stop_session()
@@ -532,7 +535,7 @@ class PatientGameWindow(QWidget):
 
         self.setFocus()
 
-        print(f"PatientGameWindow #{self._id} Session Running")
+        print(f"PatientGameWindow #{self._id} Session Started")
 
     def stop_session(self):
         if self.timer.isActive():
@@ -752,7 +755,7 @@ class PatientGameWindow(QWidget):
             f"QProgressBar::chunk {{ background-color: {chunk_color}; }}"
         )
     
-    # ---------- Patient Window Instance Close ----------
+    # ---------- Patient Game Window Instance Close ----------
 
     def closeEvent(self, event):
         # Ensure we cleanly disconnect backend/timer if still active; avoid zombie threads
