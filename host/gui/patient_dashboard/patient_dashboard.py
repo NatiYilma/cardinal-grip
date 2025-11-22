@@ -1,3 +1,5 @@
+# host/gui/patient_dashboard/patient_dashboard.py  # version 10 – with latency via BaseBackend
+
 import os
 import sys
 import json

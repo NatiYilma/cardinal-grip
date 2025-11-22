@@ -1,4 +1,4 @@
-# host/gui/patient_dashboard/patient_app.py  # version 9 – with latency via BaseBackend
+# host/gui/patient_dashboard/patient_app.py  # version 10 – with latency via BaseBackend
 
 import os
 import sys
@@ -47,8 +47,9 @@ from host.gui.session_logging import log_session_completion
 #   ls /dev/cu.usbserial-0001
 #
 # For simulated backend with keyboard-driven values, use:
-#   from comms.sim_backend import SimBackend as SerialBackend
-from comms.serial_backend import SerialBackend, auto_detect_port
+from comms.serial_backend import auto_detect_port
+#from comms.sim_backend import SimBackend as SerialBackend
+from comms.serial_backend import SerialBackend
 # ================================================================
 
 NUM_CHANNELS = 4
@@ -56,12 +57,18 @@ CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digi
 
 
 class PatientWindow(QWidget):
+    _instance_count = 0
+
     def __init__(self):
         super().__init__()
 
+        type(self)._instance_count += 1
+        self._id = type(self)._instance_count
+
         self.setWindowTitle("Cardinal Grip – Patient (Multi-Finger)")
         self.resize(1100, 700)
-        print("Patient Window Launched and Running")
+
+        print(f"PatientWindow #{self._id} created. Total = {type(self)._instance_count}")
 
         # Serial + data
         self.backend: SerialBackend | None = None
@@ -337,6 +344,8 @@ class PatientWindow(QWidget):
 
         try:
             self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
+            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
+            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
             self.backend.start()
         except Exception as e:
             QMessageBox.critical(
@@ -356,6 +365,9 @@ class PatientWindow(QWidget):
         self.start_time = time.time()
         self.timer.start()
 
+        print(f"PatientWindow #{self._id} is Connected")
+
+
     def handle_disconnect(self):
         self.timer.stop()
         if self.backend is not None:
@@ -365,6 +377,8 @@ class PatientWindow(QWidget):
         self.status_label.setText("Status: Disconnected")
         self.connect_button.setEnabled(True)
         self.disconnect_button.setEnabled(False)
+
+        print(f"PatientWindow #{self._id} is Disconnected")
 
     # ---------- SESSION RESET ----------
 
@@ -382,6 +396,8 @@ class PatientWindow(QWidget):
             self.value_labels[i].setText("Force: 0")
 
         self.status_label.setText("Status: Ready")
+
+        print(f"PatientWindow #{self._id} Session Starting/Resetting")
 
     # ---------- DATA / PLOTTING ----------
 
@@ -404,7 +420,7 @@ class PatientWindow(QWidget):
             age_ms = (now_gui - last_ts) * 1000.0
             # print every ~10th tick to avoid spam
             if int(now_gui * 50) % 10 == 0:
-                print(f"[Monitor: latency] age={age_ms:5.1f} ms, vals={vals}")
+                print(f"PatientWindow #{self._id}- [Monitor: latency] age={age_ms:5.1f} ms, vals={vals}")
                 # ~5–25 ms → fast pipeline
                 # 100–300+ ms → delayed pipeline
 
@@ -535,12 +551,31 @@ class PatientWindow(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save CSV:\n{e}")
 
+    # ---------- Patient Window Instance Close ----------
+
+    def closeEvent(self, event):
+        # Ensure we cleanly disconnect backend/timer if still active; avoid zombie threads
+        if self.backend is not None:
+            self.handle_disconnect()
+
+        print(f"PatientWindow #{self._id} is closing...")
+        type(self)._instance_count -= 1
+        print(f"Remaining PatientWindows = {type(self)._instance_count}")
+
+        super().closeEvent(event)
+
+
 
 def main():
     app = QApplication(sys.argv)
     win = PatientWindow()
     win.show()
-    sys.exit(app.exec())
+    print("Patient Qt App Launched")
+
+    exit_code = app.exec()  
+
+    print("Patient Qt App Closed")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# host/gui/patient_dashboard/patient_game_app.py  # version 9 – with latency via BaseBackend
+# host/gui/patient_dashboard/patient_game_app.py  # version 10 – with latency via BaseBackend
 
 import os
 import sys
@@ -34,7 +34,19 @@ if PROJECT_ROOT not in sys.path:
 
 from host.gui.session_logging import log_session_completion
 
-from comms.serial_backend import SerialBackend, auto_detect_port
+# ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
+# For real ESP32-S3 over serial, use:
+# from comms.serial_backend import SerialBackend  # multi-channel backend
+#
+# Terminal command to show ports:
+#   ls /dev/cu.usbserial*
+#   ls /dev/cu.usbserial-0001
+#
+# For simulated backend with keyboard-driven values, use:
+from comms.serial_backend import auto_detect_port
+#from comms.sim_backend import SimBackend as SerialBackend
+from comms.serial_backend import SerialBackend
+# ================================================================
 # ================================================================
 
 
@@ -94,12 +106,18 @@ class ThresholdProgressBar(QProgressBar):
 
 
 class PatientGameWindow(QWidget):
+    _instance_count = 0
+
     def __init__(self):
         super().__init__()
 
+        type(self)._instance_count += 1
+        self._id = type(self)._instance_count
+
         self.setWindowTitle("Cardinal Grip – Patient Game Mode")
         self.resize(1100, 700)
-        print("Patient Game Window Launched and Running")
+
+        print(f"PatientGameWindow #{self._id} created. Total = {type(self)._instance_count}")
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -457,6 +475,8 @@ class PatientGameWindow(QWidget):
 
         try:
             self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
+            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
+            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
             self.backend.start()
         except Exception as e:
             QMessageBox.critical(
@@ -476,6 +496,8 @@ class PatientGameWindow(QWidget):
         self.start_time = time.time()
         self.timer.start()
 
+        print(f"PatientGameWindow #{self._id} Connected and Session Started")
+
     def handle_disconnect(self):
         self.stop_session()
         if self.backend is not None:
@@ -485,6 +507,8 @@ class PatientGameWindow(QWidget):
         self.connect_button.setEnabled(True)
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
+
+        print(f"PatientGameWindow #{self._id} Disconnected")
 
     def start_session(self):
         self.hold_time = [0.0] * NUM_CHANNELS
@@ -508,11 +532,15 @@ class PatientGameWindow(QWidget):
 
         self.setFocus()
 
+        print(f"PatientGameWindow #{self._id} Session Running")
+
     def stop_session(self):
         if self.timer.isActive():
             self.timer.stop()
             self.sessions_completed += 1
             self._save_stats()
+
+            print(f"PatientGameWindow #{self._id} Session Stopped")
 
             try:
                 log_session_completion(
@@ -559,7 +587,7 @@ class PatientGameWindow(QWidget):
         if last_ts is not None:
             age_ms = (now_gui - last_ts) * 1000.0
             if int(now_gui * 50) % 10 == 0:
-                print(f"[Game: latency] age={age_ms:5.1f} ms, vals={vals}")
+                print(f"PatientGameWindow #{self._id}- [Game: latency] age={age_ms:5.1f} ms, vals={vals}")
                 # ~5–25 ms → fast pipeline
                 # 100–300+ ms → delayed pipeline
 
@@ -723,14 +751,32 @@ class PatientGameWindow(QWidget):
             "}"
             f"QProgressBar::chunk {{ background-color: {chunk_color}; }}"
         )
+    
+    # ---------- Patient Window Instance Close ----------
 
+    def closeEvent(self, event):
+        # Ensure we cleanly disconnect backend/timer if still active; avoid zombie threads
+        if self.backend is not None:
+            self.handle_disconnect()
+
+        print(f"PatientGameWindow #{self._id} is closing...")
+        type(self)._instance_count -= 1
+        print(f"Remaining PatientGameWindows = {type(self)._instance_count}")
+
+        super().closeEvent(event)
 
 def main():
     app = QApplication(sys.argv)
     win = PatientGameWindow()
     win.show()
-    sys.exit(app.exec())
+    print("Patient Game Qt App Launched")
+
+    exit_code = app.exec()  
+
+    print("Patient Game Qt App Closed")
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
     main()
+    
