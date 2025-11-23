@@ -47,8 +47,8 @@ from host.gui.common.instance_tracker import InstanceTrackerMixin
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
 from comms.serial_backend import auto_detect_port
-# from comms.sim_backend import SimBackend as SerialBackend
 from comms.serial_backend import SerialBackend
+# from comms.sim_backend import SimBackend as SerialBackend
 # ================================================================
 
 NUM_CHANNELS = 4
@@ -484,9 +484,9 @@ class PatientGameWindow(InstanceTrackerMixin, QWidget):
             port_arg = port_text
 
         try:
-            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
-            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
-            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1) #NOTE: testing 1 fsr
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4) #NOTE: testing 4 fsrs
+            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01) #NOTE: UNCOMMENT for real application
             self.backend.start()
         except Exception as e:
             logger.exception("Failed to open serial port %s", port_arg or "(auto-detect)")
