@@ -6,10 +6,10 @@ import logging
 from typing import List, Optional, Tuple
 
 # ---------- LOGGER ----------------
-from logger.app_logging import logger  # ensures we share the same app instance_logger
-
-# Dedicated sub-instance_logger (inherits handlers from "cardinal_grip")
-instance_logger = logging.getLogger("cardinal_grip.instances")
+# Use the standard logging hierarchy. configure_logging() is called
+# from the main entrypoints, so this logger will share the same handlers.
+logger = logging.getLogger("cardinal_grip.instances")
+instance_logger = logger  # alias for clarity inside this module
 
 
 class InstanceTrackerMixin:

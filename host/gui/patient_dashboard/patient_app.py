@@ -48,6 +48,9 @@ logger = logging.getLogger("cardinal_grip.gui.patient_monitor")
 # Shared JSON + SQLite session logging (for CSV monitor sessions)
 from host.gui.common.session_logging import log_session_completion
 
+# Instance tracking mixin
+from host.gui.common.instance_tracker import InstanceTrackerMixin
+
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
 from comms.serial_backend import auto_detect_port
 # from comms.sim_backend import SimBackend as SerialBackend
@@ -58,22 +61,26 @@ NUM_CHANNELS = 4
 CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digitus Minimus"]
 
 
-class PatientWindow(QWidget):
-    _instance_count = 0
+class PatientWindow(InstanceTrackerMixin, QWidget):
+    """
+    Patient monitor window.
+
+    Now uses InstanceTrackerMixin to track how many PatientWindow
+    instances are active, lifetime counts, and logs create/destroy.
+    """
 
     def __init__(self, parent=None):
+        # InstanceTrackerMixin.__init__ will call QWidget.__init__
         super().__init__(parent)
-
-        type(self)._instance_count += 1
-        self._id = type(self)._instance_count
 
         self.setWindowTitle("Cardinal Grip – Patient (Multi-Finger)")
         self.resize(1100, 700)
 
         logger.info(
-            "PatientWindow #%d created. Total = %d",
-            self._id,
-            type(self)._instance_count,
+            "PatientWindow #%d created (active=%d, lifetime=%d)",
+            self.instance_id,
+            type(self).active_count(),
+            type(self).lifetime_count(),
         )
 
         # Serial + data
@@ -371,7 +378,12 @@ class PatientWindow(QWidget):
         self.start_time = time.time()
         self.timer.start()
 
-        logger.info("PatientWindow #%d is Connected to %s @ %d", self._id, actual_port, baud)
+        logger.info(
+            "PatientWindow #%d is Connected to %s @ %d",
+            self.instance_id,
+            actual_port,
+            baud,
+        )
 
     def handle_disconnect(self):
         self.timer.stop()
@@ -383,7 +395,7 @@ class PatientWindow(QWidget):
         self.connect_button.setEnabled(True)
         self.disconnect_button.setEnabled(False)
 
-        logger.info("PatientWindow #%d is Disconnected", self._id)
+        logger.info("PatientWindow #%d is Disconnected", self.instance_id)
 
     # ---------- SESSION RESET ----------
 
@@ -402,7 +414,7 @@ class PatientWindow(QWidget):
 
         self.status_label.setText("Status: Ready")
 
-        logger.info("PatientWindow #%d Session Starting/Resetting", self._id)
+        logger.info("PatientWindow #%d Session Starting/Resetting", self.instance_id)
 
     # ---------- DATA / PLOTTING ----------
 
@@ -426,8 +438,10 @@ class PatientWindow(QWidget):
             # print every ~10th tick to avoid spam
             if int(now_gui * 50) % 10 == 0:
                 logger.debug(
-                    "PatientWindow #%d- [Monitor: latency] age=%5.1f ms, vals=%s",
-                    self._id,
+                    "PatientWindow #%d (active=%d, lifetime=%d) - [Monitor: latency] age=%5.1f ms, vals=%s",
+                    self.instance_id,
+                    type(self).active_count(),
+                    type(self).lifetime_count(),
                     age_ms,
                     vals,
                 )
@@ -546,7 +560,11 @@ class PatientWindow(QWidget):
                     writer.writerow(row)
 
             QMessageBox.information(self, "Saved", f"Session saved to:\n{path}")
-            logger.info("PatientWindow #%d session CSV saved to %s", self._id, path)
+            logger.info(
+                "PatientWindow #%d session CSV saved to %s",
+                self.instance_id,
+                path,
+            )
             try:
                 # Monitor sessions don't contribute reps to adherence,
                 # so reps_per_channel=None → fingers_used=0 in JSON index.
@@ -571,12 +589,12 @@ class PatientWindow(QWidget):
             self.handle_disconnect()
 
         logger.info(
-            "PatientWindow #%d is closing... Remaining = %d",
-            self._id,
-            type(self)._instance_count - 1,
+            "PatientWindow #%d closeEvent called (active=%d)",
+            self.instance_id,
+            type(self).active_count(),
         )
-        type(self)._instance_count -= 1
-
+        # Do NOT manually decrement counters; InstanceTrackerMixin
+        # will update on QObject.destroyed.
         super().closeEvent(event)
 
 

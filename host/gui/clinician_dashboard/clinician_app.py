@@ -51,6 +51,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from logger.app_logging import configure_logging  # safe after sys.path tweak
+from host.gui.common.instance_tracker import InstanceTrackerMixin
 
 NUM_CHANNELS = 4
 CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digitus Minimus"]
@@ -63,7 +64,8 @@ LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
 
-logger = logging.getLogger("cardinal_grip.gui.clinician_viewer")
+# Use the clinician_dashboard logger namespace to match other GUI entries
+logger = logging.getLogger("cardinal_grip.gui.clinician_dashboard")
 
 
 def load_patient_profile() -> dict:
@@ -85,18 +87,24 @@ def load_patient_profile() -> dict:
             data = json.load(f)
             if isinstance(data, dict):
                 return data
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to load patient profile from %s", PATIENT_PROFILE_PATH)
     return {}
 
 
-class ClinicianWindow(QWidget):
+class ClinicianWindow(InstanceTrackerMixin, QWidget):
     def __init__(self):
+        # InstanceTrackerMixin will invoke QWidget.__init__ via super()
         super().__init__()
 
-        logger.info("ClinicianWindow created")
+        logger.info(
+            "ClinicianWindow #%d created (active=%d, lifetime=%d)",
+            self.instance_id,
+            type(self).active_count(),
+            type(self).lifetime_count(),
+        )
 
-        self.setWindowTitle("Cardinal Grip – Clinician Viewer")
+        self.setWindowTitle("Cardinal Grip – Clinician Dashboard")
         self.resize(1200, 800)
 
         # Numeric data arrays
@@ -385,7 +393,11 @@ class ClinicianWindow(QWidget):
             time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc, [tmin_adc, tmax_adc]
         Threshold columns are optional.
         """
-        logger.info("Attempting to load CSV: %s", path)
+        logger.info(
+            "ClinicianWindow #%d attempting to load CSV: %s",
+            self.instance_id,
+            path,
+        )
         try:
             with open(path, "r", newline="") as f:
                 reader = csv.reader(f)
@@ -454,7 +466,8 @@ class ClinicianWindow(QWidget):
             self.file_label.setStyleSheet("color: black;")
 
             logger.info(
-                "Loaded CSV %s with %d samples",
+                "ClinicianWindow #%d loaded CSV %s with %d samples",
+                self.instance_id,
                 base,
                 self.time.size if self.time is not None else 0,
             )
@@ -478,7 +491,11 @@ class ClinicianWindow(QWidget):
             self.update_stats()
 
         except Exception as e:
-            logger.exception("Failed to load CSV from %s", path)
+            logger.exception(
+                "ClinicianWindow #%d failed to load CSV from %s",
+                self.instance_id,
+                path,
+            )
             QMessageBox.critical(
                 self,
                 "Error",
@@ -549,18 +566,29 @@ class ClinicianWindow(QWidget):
                 f"in-band {pct_in_band:5.1f}%"
             )
 
+    # ---------- Window close / instance logging ----------
+
+    def closeEvent(self, event):
+        logger.info(
+            "ClinicianWindow #%d closeEvent called (active=%d)",
+            self.instance_id,
+            type(self).active_count(),
+        )
+        # Do NOT touch counters here; InstanceTrackerMixin updates on destroyed.
+        super().closeEvent(event)
+
 
 def main():
     configure_logging(LOG_FILE)
-    logger.info("Clinician Viewer Qt App Launching")
+    logger.info("Clinician Dashboard Qt App Launching")
 
     app = QApplication(sys.argv)
     win = ClinicianWindow()
     win.show()
-    logger.info("Clinician Viewer Qt App Launched")
+    logger.info("Clinician Dashboard Qt App Launched")
 
     exit_code = app.exec()
-    logger.info("Clinician Viewer Qt App Closed with exit code %d", exit_code)
+    logger.info("Clinician Dashboard Qt App Closed with exit code %d", exit_code)
     sys.exit(exit_code)
 
 

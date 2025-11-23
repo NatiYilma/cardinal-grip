@@ -43,6 +43,7 @@ LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
 logger = logging.getLogger("cardinal_grip.gui.patient_game")
 
 from host.gui.common.session_logging import log_session_completion
+from host.gui.common.instance_tracker import InstanceTrackerMixin
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
 from comms.serial_backend import auto_detect_port
@@ -105,9 +106,7 @@ class ThresholdProgressBar(QProgressBar):
         painter.end()
 
 
-class PatientGameWindow(QWidget):
-    _instance_count = 0
-
+class PatientGameWindow(InstanceTrackerMixin, QWidget):
     def __init__(self, parent=None, log_to_json: bool = True):
         """
         log_to_json:
@@ -115,10 +114,8 @@ class PatientGameWindow(QWidget):
             - False → stop_session() skips JSON logging (used by dual launcher,
                       which will log a single combined "dual" session instead).
         """
+        # InstanceTrackerMixin will call QWidget.__init__ via super()
         super().__init__(parent)
-
-        type(self)._instance_count += 1
-        self._id = type(self)._instance_count
 
         self.log_to_json = log_to_json
 
@@ -126,10 +123,11 @@ class PatientGameWindow(QWidget):
         self.resize(1100, 700)
 
         logger.info(
-            "PatientGameWindow #%d created (log_to_json=%s). Total = %d",
-            self._id,
+            "PatientGameWindow #%d created (active=%d, lifetime=%d, log_to_json=%s)",
+            self.instance_id,
+            type(self).active_count(),
+            type(self).lifetime_count(),
             self.log_to_json,
-            type(self)._instance_count,
         )
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -515,7 +513,7 @@ class PatientGameWindow(QWidget):
 
         logger.info(
             "PatientGameWindow #%d is Connected to %s @ %d",
-            self._id,
+            self.instance_id,
             actual_port,
             baud,
         )
@@ -530,7 +528,7 @@ class PatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
 
-        logger.info("PatientGameWindow #%d Disconnected", self._id)
+        logger.info("PatientGameWindow #%d Disconnected", self.instance_id)
 
     def start_session(self):
         self.hold_time = [0.0] * NUM_CHANNELS
@@ -559,7 +557,7 @@ class PatientGameWindow(QWidget):
 
         logger.info(
             "PatientGameWindow #%d Session Started (id=%s)",
-            self._id,
+            self.instance_id,
             self.current_session_id,
         )
 
@@ -571,7 +569,7 @@ class PatientGameWindow(QWidget):
 
             logger.info(
                 "PatientGameWindow #%d Session Stopped (id=%s)",
-                self._id,
+                self.instance_id,
                 self.current_session_id,
             )
 
@@ -626,8 +624,10 @@ class PatientGameWindow(QWidget):
             age_ms = (now_gui - last_ts) * 1000.0
             if int(now_gui * 50) % 10 == 0:
                 logger.debug(
-                    "PatientGameWindow #%d- [Game: latency] age=%5.1f ms, vals=%s",
-                    self._id,
+                    "PatientGameWindow #%d (active=%d, lifetime=%d) - [Game: latency] age=%5.1f ms, vals=%s",
+                    self.instance_id,
+                    type(self).active_count(),
+                    type(self).lifetime_count(),
                     age_ms,
                     vals,
                 )
@@ -801,12 +801,11 @@ class PatientGameWindow(QWidget):
             self.handle_disconnect()
 
         logger.info(
-            "PatientGameWindow #%d is closing... Remaining = %d",
-            self._id,
-            type(self)._instance_count - 1,
+            "PatientGameWindow #%d closeEvent called (active=%d)",
+            self.instance_id,
+            type(self).active_count(),
         )
-        type(self)._instance_count -= 1
-
+        # Do NOT touch counters here; InstanceTrackerMixin will update on destroyed.
         super().closeEvent(event)
 
 

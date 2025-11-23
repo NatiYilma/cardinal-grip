@@ -1,4 +1,4 @@
-# host/gui/patient_dual_launcher.py
+# host/gui/patient_dashboard/patient_dual_launcher.py
 
 """
 Dual view launcher:
@@ -63,10 +63,11 @@ from comms.serial_backend import auto_detect_port
 
 # Shared JSON+SQLite session logging for the dual view
 from host.gui.common.session_logging import log_session_completion
+from host.gui.common.instance_tracker import InstanceTrackerMixin
 # ================================================================
 
 
-class DualPatientGameWindow(QWidget):
+class DualPatientGameWindow(InstanceTrackerMixin, QWidget):
     """
     Embeds:
       - Left:  PatientGameWindow  (game mode)
@@ -78,22 +79,20 @@ class DualPatientGameWindow(QWidget):
       * pushes thresholds into both child windows.
       * logs a single combined "dual" session row on stop.
     """
-    _instance_count = 0
 
     def __init__(self, parent=None):
+        # InstanceTrackerMixin will call QWidget.__init__ via super()
         super().__init__(parent)
-
-        type(self)._instance_count += 1
-        self._id = type(self)._instance_count
 
         self.setWindowTitle("Cardinal Grip – Dual Patient View")
         self.resize(1200, 750)
         self.setMinimumSize(1100, 700)
 
         logger.info(
-            "PatientDualWindow #%d created. Total = %d",
-            self._id,
-            type(self)._instance_count,
+            "PatientDualWindow #%d created (active=%d, lifetime=%d)",
+            self.instance_id,
+            type(self).active_count(),
+            type(self).lifetime_count(),
         )
 
         self.shared_backend = None
@@ -345,8 +344,10 @@ class DualPatientGameWindow(QWidget):
         if backend is None:
             self.status_label.setText("Status: Failed to connect (see game view).")
             logger.warning(
-                "Dual window #%d failed to connect: game_window.backend is None",
-                self._id,
+                "PatientDualWindow #%d (active=%d, lifetime=%d) failed to connect: game_window.backend is None",
+                self.instance_id,
+                type(self).active_count(),
+                type(self).lifetime_count(),
             )
             return
 
@@ -369,7 +370,12 @@ class DualPatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(True)
         self.start_button.setEnabled(True)
 
-        logger.info("PatientDualWindow #%d is Connected", self._id)
+        logger.info(
+            "PatientDualWindow #%d is Connected (active=%d, lifetime=%d)",
+            self.instance_id,
+            type(self).active_count(),
+            type(self).lifetime_count(),
+        )
 
     def handle_shared_disconnect(self):
         """Stop session and disconnect both child windows."""
@@ -386,7 +392,12 @@ class DualPatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
 
-        logger.info("PatientDualWindow #%d is Disconnected", self._id)
+        logger.info(
+            "PatientDualWindow #%d is Disconnected (active=%d, lifetime=%d)",
+            self.instance_id,
+            type(self).active_count(),
+            type(self).lifetime_count(),
+        )
 
     # ---------- SESSION CONTROL + JSON LOGGING ----------
 
@@ -397,8 +408,10 @@ class DualPatientGameWindow(QWidget):
         if self.shared_backend is None:
             self.status_label.setText("Status: Cannot start – not connected.")
             logger.warning(
-                "PatientDualWindow #%d tried to start session without backend",
-                self._id,
+                "PatientDualWindow #%d (active=%d, lifetime=%d) tried to start session without backend",
+                self.instance_id,
+                type(self).active_count(),
+                type(self).lifetime_count(),
             )
             return
 
@@ -423,7 +436,13 @@ class DualPatientGameWindow(QWidget):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
-        logger.info("PatientDualWindow #%d Session Started (id=%s)", self._id, sid)
+        logger.info(
+            "PatientDualWindow #%d Session Started (id=%s, active=%d, lifetime=%d)",
+            self.instance_id,
+            sid,
+            type(self).active_count(),
+            type(self).lifetime_count(),
+        )
 
     def handle_stop_session(self):
         """
@@ -461,7 +480,7 @@ class DualPatientGameWindow(QWidget):
             )
             logger.info(
                 "PatientDualWindow #%d logged dual session (id=%s, reps=%s, combo=%s)",
-                self._id,
+                self.instance_id,
                 sid,
                 reps,
                 combo_reps,
@@ -469,7 +488,7 @@ class DualPatientGameWindow(QWidget):
         except Exception:
             logger.exception(
                 "PatientDualWindow #%d failed to log dual session (id=%s)",
-                self._id,
+                self.instance_id,
                 sid,
             )
 
@@ -480,7 +499,7 @@ class DualPatientGameWindow(QWidget):
 
         logger.info(
             "PatientDualWindow #%d Session Stopped (id=%s)",
-            self._id,
+            self.instance_id,
             self.current_session_id,
         )
         self.current_session_id = None
@@ -504,12 +523,11 @@ class DualPatientGameWindow(QWidget):
             self.handle_shared_disconnect()
 
         logger.info(
-            "PatientDualWindow #%d is closing... Remaining = %d",
-            self._id,
-            type(self)._instance_count - 1,
+            "PatientDualWindow #%d closeEvent called (active=%d)",
+            self.instance_id,
+            type(self).active_count(),
         )
-        type(self)._instance_count -= 1
-
+        # Do NOT touch counters here; InstanceTrackerMixin will update on destroyed.
         super().closeEvent(event)
 
 
