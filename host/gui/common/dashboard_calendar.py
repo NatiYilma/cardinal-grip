@@ -1,4 +1,4 @@
-# host/gui/dashboard_calendar.py 
+# host/gui/common/dashboard_calendar.py
 
 """
 Dashboard calendar file gets information from /data/sessions_log.json
@@ -8,6 +8,7 @@ and /data/patient_profile.json (for rehab start date).
 import os
 import sys
 import json
+import logging
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 
@@ -23,17 +24,36 @@ from PyQt6.QtWidgets import (
     QGroupBox,
 )
 
-# ---------- PATH SETUP ----------
-GUI_DIR = os.path.dirname(__file__)          # .../host/gui
-HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
+# ---------- PATH + LOGGING SETUP ----------
+
+# This file may live in:
+#   - .../cardinal-grip/host/gui/dashboard_calendar.py
+#   - .../cardinal-grip/host/gui/common/dashboard_calendar.py
+CALENDAR_DIR = os.path.dirname(__file__)  # .../host/gui OR .../host/gui/common
+
+# If we're in .../host/gui/common, GUI_DIR is the parent; otherwise it's CALENDAR_DIR itself
+if os.path.basename(CALENDAR_DIR) == "common":
+    GUI_DIR = os.path.dirname(CALENDAR_DIR)        # .../host/gui
+else:
+    GUI_DIR = CALENDAR_DIR                         # .../host/gui
+
+HOST_DIR = os.path.dirname(GUI_DIR)                # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)           # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+from logger.app_logging import configure_logging  # shared app logging setup
+
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 SESSIONS_LOG_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 PATIENT_PROFILE_PATH = os.path.join(DATA_DIR, "patient_profile.json")
+
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.calendar")
 
 
 class AdherenceCalendar(QCalendarWidget):
@@ -72,19 +92,25 @@ class AdherenceCalendar(QCalendarWidget):
         or None if missing / invalid.
         """
         if not os.path.isfile(PATIENT_PROFILE_PATH):
+            logger.info("No patient profile file found at %s", PATIENT_PROFILE_PATH)
             return None
         try:
             with open(PATIENT_PROFILE_PATH, "r") as f:
                 profile = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to load patient profile from %s", PATIENT_PROFILE_PATH)
             return None
 
         s = profile.get("start_date")
         if not s:
+            logger.debug("No 'start_date' key found in patient profile")
             return None
         try:
-            return date.fromisoformat(s)
+            start = date.fromisoformat(s)
+            logger.info("Loaded rehab start_date %s from patient profile", start.isoformat())
+            return start
         except Exception:
+            logger.exception("Invalid start_date '%s' in patient profile", s)
             return None
 
     def _load_day_summary(self):
@@ -95,18 +121,30 @@ class AdherenceCalendar(QCalendarWidget):
         summary = defaultdict(lambda: {"fingers_used": 0, "has_combo": False})
 
         if not os.path.isfile(SESSIONS_LOG_PATH):
+            logger.info("No sessions log file found at %s", SESSIONS_LOG_PATH)
             return summary
 
         try:
             with open(SESSIONS_LOG_PATH, "r") as f:
                 sessions = json.load(f)
         except Exception:
+            logger.exception("Failed to load sessions log from %s", SESSIONS_LOG_PATH)
+            return summary
+
+        if not isinstance(sessions, list):
+            logger.warning(
+                "sessions_log.json is not a list (type=%s); ignoring",
+                type(sessions).__name__,
+            )
             return summary
 
         for sess in sessions:
+            if not isinstance(sess, dict):
+                continue
+
             ts_str = sess.get("timestamp")
             reps = sess.get("reps_per_channel", [])
-            combo_reps = int(sess.get("combo_reps", 0))
+            combo_reps = sess.get("combo_reps", 0)
 
             if not ts_str:
                 continue
@@ -114,11 +152,24 @@ class AdherenceCalendar(QCalendarWidget):
             try:
                 ts = datetime.fromisoformat(ts_str)
             except Exception:
+                logger.debug("Skipping session with invalid timestamp: %r", ts_str)
                 continue
 
             d = ts.date()
-            fingers_used = sum(1 for r in reps if isinstance(r, (int, float)) and r > 0)
-            has_combo = combo_reps > 0
+
+            # Count fingers used: reps_per_channel > 0
+            fingers_used = 0
+            if isinstance(reps, list):
+                fingers_used = sum(
+                    1 for r in reps
+                    if isinstance(r, (int, float)) and r > 0
+                )
+
+            try:
+                combo_val = int(combo_reps)
+            except Exception:
+                combo_val = 0
+            has_combo = combo_val > 0
 
             # If multiple sessions in same day, keep the "max" usage
             prev = summary[d]
@@ -127,6 +178,7 @@ class AdherenceCalendar(QCalendarWidget):
                 "has_combo": prev["has_combo"] or has_combo,
             }
 
+        logger.info("Loaded adherence summary for %d days", len(summary))
         return summary
 
     # ----- Visual configuration -----
@@ -136,7 +188,7 @@ class AdherenceCalendar(QCalendarWidget):
         Make weekday headers & date text all white (no red weekends).
         """
         base_fmt = QTextCharFormat()
-        base_fmt.setForeground(QBrush(QColor("#FFFFFF"))) # white
+        base_fmt.setForeground(QBrush(QColor("#FFFFFF")))  # white
         base_fmt.setFontWeight(QFont.Weight.ExtraBold)
 
         for dow in (
@@ -245,6 +297,12 @@ class AdherenceCalendar(QCalendarWidget):
         start = date(year_min, 1, 1)
         end = date(year_max, 12, 31)
 
+        logger.debug(
+            "Applying calendar colors from %s to %s",
+            start.isoformat(),
+            end.isoformat(),
+        )
+
         cur = start
         while cur <= end:
             status = self._status_for_date(cur)
@@ -317,10 +375,17 @@ class DashboardWindow(QWidget):
 
 
 def main():
+    configure_logging(LOG_FILE)
+    logger.info("Adherence Dashboard Qt App Launching")
+
     app = QApplication(sys.argv)
     win = DashboardWindow()
     win.show()
-    sys.exit(app.exec())
+    logger.info("Adherence Dashboard Qt App Launched")
+
+    exit_code = app.exec()
+    logger.info("Adherence Dashboard Qt App Closed with exit code %d", exit_code)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
