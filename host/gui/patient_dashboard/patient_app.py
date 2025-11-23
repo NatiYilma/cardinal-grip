@@ -36,7 +36,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 # This is for JSON DB logging sessions
-from host.gui.session_logging import log_session_completion
+from host.gui.common.session_logging import log_session_completion
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
 # For real ESP32-S3 over serial, use:

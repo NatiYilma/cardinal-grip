@@ -43,7 +43,7 @@ CLINICIAN_PROFILE_PATH = os.path.join(DATA_DIR, "clinician_profile.json")
 CLINICIAN_SETTINGS_PATH = os.path.join(DATA_DIR, "clinician_settings.json")
 
 # Re-use existing calendar + clinician monitor + dual view + patient multi-finger view
-from host.gui.dashboard_calendar import DashboardWindow
+from host.gui.common.dashboard_calendar import DashboardWindow
 from host.gui.clinician_dashboard.clinician_app import ClinicianWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
 from host.gui.patient_dashboard.patient_dual_launcher import DualPatientGameWindow

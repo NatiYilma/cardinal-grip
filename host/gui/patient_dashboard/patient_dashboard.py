@@ -46,7 +46,7 @@ SESSIONS_JSON_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
 from host.gui.patient_dashboard.patient_dual_launcher import DualPatientGameWindow
-from host.gui.dashboard_calendar import DashboardWindow
+from host.gui.common.dashboard_calendar import DashboardWindow
 
 
 # =====================================================================
