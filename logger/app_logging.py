@@ -3,13 +3,14 @@
 import sys
 import os
 import logging
-import uuid  
+import uuid
 
 import colorama
 from colorama import Fore, Style
 
 colorama.init(autoreset=False)
 Fore.ORANGE = "\033[38;5;208m"  # Monkey patch orange color to Fore
+
 
 # ========================================================
 #   Colored formatter
@@ -54,7 +55,6 @@ class RunIdFilter(logging.Filter):
         self.run_id = run_id
 
     def filter(self, record: logging.LogRecord) -> bool:
-        # Inject run_id into the record; required by the formatter.
         record.run_id = self.run_id
         return True
 
@@ -63,10 +63,19 @@ class RunIdFilter(logging.Filter):
 #   Main configuration
 # ========================================================
 
-def configure_logging(log_file: str) -> logging.Logger:
+def configure_logging(
+    log_file: str | None,
+    level: int = logging.DEBUG,
+) -> logging.Logger:
     """
-    Configure root logging once, return the main app logger.
-    Calling this again will just return the existing logger.
+    Configure logging once for the 'cardinal_grip' application.
+
+    - Sets up a colored console handler.
+    - Optionally sets up a file handler if log_file is not None.
+    - Attaches a per-run ID (run_id) to all records.
+    - Is idempotent: calling this again will not add duplicate handlers.
+
+    Returns the main 'cardinal_grip' logger.
     """
     root = logging.getLogger()
 
@@ -78,9 +87,11 @@ def configure_logging(log_file: str) -> logging.Logger:
     run_id = uuid.uuid4().hex[:8]
     run_filter = RunIdFilter(run_id)
 
-    log_dir = os.path.dirname(log_file)
-    if log_dir and not os.path.exists(log_dir):
-        os.makedirs(log_dir, exist_ok=True)
+    # Create log directory if needed
+    if log_file:
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
 
     # ---- Console (colored) ----
     console_formatter = ColoredFormatter(
@@ -91,18 +102,19 @@ def configure_logging(log_file: str) -> logging.Logger:
     console_handler.setFormatter(console_formatter)
     console_handler.addFilter(run_filter)
 
-    # ---- File (no color) ----
-    file_formatter = logging.Formatter(
-        "%(asctime)s - %(run_id)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%m-%d-%Y %I:%M:%S %p",
-    )
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setFormatter(file_formatter)
-    file_handler.addFilter(run_filter)
-
-    root.setLevel(logging.DEBUG)
+    root.setLevel(level)
     root.addHandler(console_handler)
-    root.addHandler(file_handler)
+
+    # ---- File (no color) ----
+    if log_file:
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(run_id)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%m-%d-%Y %I:%M:%S %p",
+        )
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(file_formatter)
+        file_handler.addFilter(run_filter)
+        root.addHandler(file_handler)
 
     # Main app logger
     app_logger = logging.getLogger("cardinal_grip")
@@ -117,9 +129,8 @@ def configure_logging(log_file: str) -> logging.Logger:
     return app_logger
 
 
-# Optional convenience logger for quick tests:
-logger = logging.getLogger("cardinal_grip")
-
+# Optional convenience logger for quick tests.
+# logger = logging.getLogger("cardinal_grip")
 
 # ========================================================
 # Examples:

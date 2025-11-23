@@ -6,6 +6,7 @@ import json
 import sqlite3
 from datetime import datetime
 from collections import defaultdict
+import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -35,12 +36,21 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)              # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+from logger.app_logging import configure_logging  # now safe: PROJECT_ROOT is on sys.path
+
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 SESSIONS_JSON_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 CLINICIAN_PROFILE_PATH = os.path.join(DATA_DIR, "clinician_profile.json")
 CLINICIAN_SETTINGS_PATH = os.path.join(DATA_DIR, "clinician_settings.json")
+
+# Logging: reuse same log file as patient dashboard
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.clinician_dashboard")
 
 # Re-use existing calendar + clinician monitor + dual view + patient multi-finger view
 from host.gui.common.dashboard_calendar import DashboardWindow
@@ -60,7 +70,8 @@ def _load_sessions():
             if isinstance(data, list):
                 return data
             return []
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to load sessions from %s", SESSIONS_JSON_PATH)
         return []
 
 
@@ -77,7 +88,11 @@ def _sessions_summary():
     last_ts = None
 
     for s in sessions:
-        total_reps += int(s.get("total_reps", 0))
+        try:
+            total_reps += int(s.get("total_reps", 0))
+        except Exception:
+            pass
+
         ts_str = s.get("timestamp")
         if ts_str:
             try:
@@ -107,6 +122,8 @@ class ClinicianDashboardPage(QWidget):
     def __init__(self, parent_shell):
         super().__init__()
         self.shell = parent_shell  # parent shell window so we can call its helpers
+
+        logger.info("ClinicianDashboardPage created")
 
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -172,6 +189,12 @@ class ClinicianDashboardPage(QWidget):
 
     def refresh_stats(self):
         total_sessions, total_reps, last_str = _sessions_summary()
+        logger.debug(
+            "ClinicianDashboardPage stats refreshed: total_sessions=%d, total_reps=%d, last=%s",
+            total_sessions,
+            total_reps,
+            last_str,
+        )
         self.sessions_label.setText(f"Total sessions (all modes): {total_sessions}")
         self.total_reps_label.setText(f"Total reps recorded (all fingers): {total_reps}")
         self.last_session_label.setText(f"Most recent session: {last_str}")
@@ -306,7 +329,8 @@ class ClinicianProfilePage(QWidget):
         try:
             with open(CLINICIAN_PROFILE_PATH, "r") as f:
                 data = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to load clinician profile from %s", CLINICIAN_PROFILE_PATH)
             return
 
         self.name_edit.setText(data.get("name", ""))
@@ -345,6 +369,7 @@ class ClinicianProfilePage(QWidget):
                 json.dump(data, f, indent=2)
             QMessageBox.information(self, "Saved", "Clinician profile saved.")
         except Exception as e:
+            logger.exception("Failed to save clinician profile to %s", CLINICIAN_PROFILE_PATH)
             QMessageBox.warning(self, "Error", f"Failed to save profile:\n{e}")
 
 
@@ -542,7 +567,8 @@ class ClinicianSettingsPage(QWidget):
         try:
             with open(CLINICIAN_SETTINGS_PATH, "r") as f:
                 data = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to load clinician settings from %s", CLINICIAN_SETTINGS_PATH)
             return
 
         def set_combo_from_key(combo, key, default):
@@ -575,6 +601,7 @@ class ClinicianSettingsPage(QWidget):
                 json.dump(data, f, indent=2)
             QMessageBox.information(self, "Saved", "Clinician settings saved.")
         except Exception as e:
+            logger.exception("Failed to save clinician settings to %s", CLINICIAN_SETTINGS_PATH)
             QMessageBox.warning(self, "Error", f"Failed to save settings:\n{e}")
 
 
@@ -594,8 +621,19 @@ class ClinicianShellWindow(QWidget):
           * Dual view (patient game + monitor)
     """
 
+    _instance_count = 0
+
     def __init__(self):
         super().__init__()
+
+        type(self)._instance_count += 1
+        self._id = type(self)._instance_count
+
+        logger.info(
+            "ClinicianShellWindow #%d created. Total = %d",
+            self._id,
+            type(self)._instance_count,
+        )
 
         self.setWindowTitle("Cardinal Grip – Clinician")
         self.resize(1100, 700)
@@ -730,6 +768,7 @@ class ClinicianShellWindow(QWidget):
         """
         Open the clinician monitor window (multi-channel view).
         """
+        logger.info("Opening clinician monitor window")
         win = ClinicianWindow()
         win.show()
         self._open_windows.append(win)
@@ -740,6 +779,7 @@ class ClinicianShellWindow(QWidget):
         This lets the clinician see the same 4-channel view.
         """
         if self.multi_monitor_win is None:
+            logger.info("Creating clinician multi-finger monitor window")
             self.multi_monitor_win = PatientWindow()
             self.multi_monitor_win.setWindowTitle(
                 "Cardinal Grip – Multi-Finger Monitor (Clinician View)"
@@ -752,16 +792,51 @@ class ClinicianShellWindow(QWidget):
         """
         Open the dual patient window (game + monitor side-by-side).
         """
+        logger.info("Opening dual patient game + monitor window (clinician)")
         win = DualPatientGameWindow()
         win.show()
         self._open_windows.append(win)
 
+    # ---- Close event ----
+
+    def closeEvent(self, event):
+        logger.info(
+            "ClinicianShellWindow #%d closing... Remaining = %d",
+            self._id,
+            type(self)._instance_count - 1,
+        )
+
+        for win in list(self._open_windows):
+            try:
+                win.close()
+            except Exception:
+                logger.exception("Error closing child window")
+        self._open_windows.clear()
+
+        if self.multi_monitor_win is not None:
+            try:
+                self.multi_monitor_win.close()
+            except Exception:
+                logger.exception("Error closing multi_monitor_win")
+            self.multi_monitor_win = None
+
+        type(self)._instance_count -= 1
+        super().closeEvent(event)
+
 
 def main():
+    # Configure logging for this process
+    configure_logging(LOG_FILE)
+    logger.info("Clinician Dashboard Qt App Launching")
+
     app = QApplication(sys.argv)
     win = ClinicianShellWindow()
     win.show()
-    sys.exit(app.exec())
+    logger.info("Clinician Dashboard Qt App Launched")
+
+    exit_code = app.exec()
+    logger.info("Clinician Dashboard Qt App Closed with exit code %d", exit_code)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

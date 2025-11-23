@@ -1,4 +1,4 @@
-# host/gui/common/instance_tracker.py  # version 3 Method Resolution Order (MRO-friendly)
+# host/gui/common/instance_tracker.py 
 
 from __future__ import annotations
 

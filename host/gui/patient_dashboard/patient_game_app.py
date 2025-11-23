@@ -1,9 +1,10 @@
-# host/gui/patient_dashboard/patient_game_app.py  #version 10
+# host/gui/patient_dashboard/patient_game_app.py 
 
 import os
 import sys
 import json
 import time
+import logging
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer, Qt, QUrl
@@ -23,6 +24,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QPainter, QPen, QColor
 from PyQt6.QtMultimedia import QSoundEffect
 
+from logger.app_logging import configure_logging
+
 # -------- PATH SETUP --------
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
@@ -32,23 +35,20 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)            # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+# Logging setup constants (configure_logging is only called in main())
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.patient_game")
+
 from host.gui.common.session_logging import log_session_completion
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
-# For real ESP32-S3 over serial, use:
-# from comms.serial_backend import SerialBackend  # multi-channel backend
-#
-# Terminal command to show ports:
-#   ls /dev/cu.usbserial*
-#   ls /dev/cu.usbserial-0001
-#
-# For simulated backend with keyboard-driven values, use:
 from comms.serial_backend import auto_detect_port
-#from comms.sim_backend import SimBackend as SerialBackend
+# from comms.sim_backend import SimBackend as SerialBackend
 from comms.serial_backend import SerialBackend
 # ================================================================
-# ================================================================
-
 
 NUM_CHANNELS = 4
 CHANNEL_NAMES = ["Index", "Middle", "Ring", "Pinky"]
@@ -117,7 +117,11 @@ class PatientGameWindow(QWidget):
         self.setWindowTitle("Cardinal Grip – Patient Game Mode")
         self.resize(1100, 700)
 
-        print(f"PatientGameWindow #{self._id} created. Total = {type(self)._instance_count}")
+        logger.info(
+            "PatientGameWindow #%d created. Total = %d",
+            self._id,
+            type(self)._instance_count,
+        )
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -401,7 +405,8 @@ class PatientGameWindow(QWidget):
                 self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = int(data.get("sessions_completed", 0))
             self.combo_reps = int(data.get("combo_reps", 0))
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to load game stats from %s", self.stats_path)
             self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = 0
             self.combo_reps = 0
@@ -417,7 +422,7 @@ class PatientGameWindow(QWidget):
             with open(self.stats_path, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception:
-            pass
+            logger.exception("Failed to save game stats to %s", self.stats_path)
 
     def _total_reps_text(self):
         total = sum(self.reps_per_channel)
@@ -468,17 +473,16 @@ class PatientGameWindow(QWidget):
 
         if not port_text or port_text.lower() == "auto":
             port_arg = None
-            port_label = "auto-detect"
         else:
             port_arg = port_text
-            port_label = port_text
 
         try:
             self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
-            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
-            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
             self.backend.start()
         except Exception as e:
+            logger.exception("Failed to open serial port %s", port_arg or "(auto-detect)")
             QMessageBox.critical(
                 self,
                 "Serial error",
@@ -499,7 +503,12 @@ class PatientGameWindow(QWidget):
         self.start_time = time.time()
         self.timer.start()
 
-        print(f"PatientGameWindow #{self._id} is Connected")
+        logger.info(
+            "PatientGameWindow #%d is Connected to %s @ %d",
+            self._id,
+            actual_port,
+            baud,
+        )
 
     def handle_disconnect(self):
         self.stop_session()
@@ -511,7 +520,7 @@ class PatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
 
-        print(f"PatientGameWindow #{self._id} Disconnected")
+        logger.info("PatientGameWindow #%d Disconnected", self._id)
 
     def start_session(self):
         self.hold_time = [0.0] * NUM_CHANNELS
@@ -535,7 +544,7 @@ class PatientGameWindow(QWidget):
 
         self.setFocus()
 
-        print(f"PatientGameWindow #{self._id} Session Started")
+        logger.info("PatientGameWindow #%d Session Started", self._id)
 
     def stop_session(self):
         if self.timer.isActive():
@@ -543,7 +552,7 @@ class PatientGameWindow(QWidget):
             self.sessions_completed += 1
             self._save_stats()
 
-            print(f"PatientGameWindow #{self._id} Session Stopped")
+            logger.info("PatientGameWindow #%d Session Stopped", self._id)
 
             try:
                 log_session_completion(
@@ -555,8 +564,8 @@ class PatientGameWindow(QWidget):
                     timestamp=datetime.now(),
                     session_id=self.current_session_id,
                 )
-            except Exception as e:
-                print("Warning: failed to log session:", e)
+            except Exception:
+                logger.exception("Warning: failed to log game session")
 
             self.session_count_label.setText(
                 f"Sessions completed (game mode): {self.sessions_completed}"
@@ -590,9 +599,12 @@ class PatientGameWindow(QWidget):
         if last_ts is not None:
             age_ms = (now_gui - last_ts) * 1000.0
             if int(now_gui * 50) % 10 == 0:
-                print(f"PatientGameWindow #{self._id}- [Game: latency] age={age_ms:5.1f} ms, vals={vals}")
-                # ~5–25 ms → fast pipeline
-                # 100–300+ ms → delayed pipeline
+                logger.debug(
+                    "PatientGameWindow #%d- [Game: latency] age=%5.1f ms, vals=%s",
+                    self._id,
+                    age_ms,
+                    vals,
+                )
 
         if isinstance(vals, (int, float)):
             vals = [vals] * NUM_CHANNELS
@@ -754,7 +766,7 @@ class PatientGameWindow(QWidget):
             "}"
             f"QProgressBar::chunk {{ background-color: {chunk_color}; }}"
         )
-    
+
     # ---------- Patient Game Window Instance Close ----------
 
     def closeEvent(self, event):
@@ -762,24 +774,30 @@ class PatientGameWindow(QWidget):
         if self.backend is not None:
             self.handle_disconnect()
 
-        print(f"PatientGameWindow #{self._id} is closing...")
+        logger.info(
+            "PatientGameWindow #%d is closing... Remaining = %d",
+            self._id,
+            type(self)._instance_count - 1,
+        )
         type(self)._instance_count -= 1
-        print(f"Remaining PatientGameWindows = {type(self)._instance_count}")
 
         super().closeEvent(event)
 
+
 def main():
+    configure_logging(LOG_FILE)
+    logger.info("Patient Game Qt App Launching")
+
     app = QApplication(sys.argv)
     win = PatientGameWindow()
     win.show()
-    print("Patient Game Qt App Launched")
+    logger.info("Patient Game Qt App Launched")
 
-    exit_code = app.exec()  
+    exit_code = app.exec()
 
-    print("Patient Game Qt App Closed")
+    logger.info("Patient Game Qt App Closed with exit code %d", exit_code)
     sys.exit(exit_code)
 
 
 if __name__ == "__main__":
     main()
-    

@@ -1,9 +1,10 @@
-# host/gui/patient_dashboard/patient_app.py  #version 10
+# host/gui/patient_dashboard/patient_app.py 
 
 import os
 import sys
 import time
 import csv
+import logging
 from collections import deque
 from datetime import datetime
 
@@ -25,6 +26,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 import pyqtgraph as pg
 
+from logger.app_logging import configure_logging
+
 # ------------ PATH SETUP ------------
 # This file is .../cardinal-grip/host/gui/patient_dashboard/patient_app.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
@@ -35,20 +38,19 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)            # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+# Logging setup constants (configure_logging is only called in main())
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.patient_monitor")
+
 # This is for JSON DB logging sessions
 from host.gui.common.session_logging import log_session_completion
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
-# For real ESP32-S3 over serial, use:
-# from comms.serial_backend import SerialBackend  # multi-channel backend
-#
-# Terminal command to show ports:
-#   ls /dev/cu.usbserial*
-#   ls /dev/cu.usbserial-0001
-#
-# For simulated backend with keyboard-driven values, use:
 from comms.serial_backend import auto_detect_port
-#from comms.sim_backend import SimBackend as SerialBackend
+# from comms.sim_backend import SimBackend as SerialBackend
 from comms.serial_backend import SerialBackend
 # ================================================================
 
@@ -68,7 +70,11 @@ class PatientWindow(QWidget):
         self.setWindowTitle("Cardinal Grip – Patient (Multi-Finger)")
         self.resize(1100, 700)
 
-        print(f"PatientWindow #{self._id} created. Total = {type(self)._instance_count}")
+        logger.info(
+            "PatientWindow #%d created. Total = %d",
+            self._id,
+            type(self)._instance_count,
+        )
 
         # Serial + data
         self.backend: SerialBackend | None = None
@@ -93,7 +99,8 @@ class PatientWindow(QWidget):
         # --- Placeholder to auto-detected port, if any ---
         try:
             detected = auto_detect_port()
-        except Exception:
+        except Exception as e:
+            logger.exception("auto_detect_port failed")
             detected = None
 
         if detected:
@@ -337,17 +344,16 @@ class PatientWindow(QWidget):
 
         if not port_text or port_text.lower() == "auto":
             port_arg = None
-            port_label = "auto-detect"
         else:
             port_arg = port_text
-            port_label = port_text
 
         try:
             self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1)
-            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
-            #self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4)
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01)
             self.backend.start()
         except Exception as e:
+            logger.exception("Failed to open serial port %s", port_arg or "(auto-detect)")
             QMessageBox.critical(
                 self,
                 "Serial error",
@@ -365,8 +371,7 @@ class PatientWindow(QWidget):
         self.start_time = time.time()
         self.timer.start()
 
-        print(f"PatientWindow #{self._id} is Connected")
-
+        logger.info("PatientWindow #%d is Connected to %s @ %d", self._id, actual_port, baud)
 
     def handle_disconnect(self):
         self.timer.stop()
@@ -378,7 +383,7 @@ class PatientWindow(QWidget):
         self.connect_button.setEnabled(True)
         self.disconnect_button.setEnabled(False)
 
-        print(f"PatientWindow #{self._id} is Disconnected")
+        logger.info("PatientWindow #%d is Disconnected", self._id)
 
     # ---------- SESSION RESET ----------
 
@@ -397,7 +402,7 @@ class PatientWindow(QWidget):
 
         self.status_label.setText("Status: Ready")
 
-        print(f"PatientWindow #{self._id} Session Starting/Resetting")
+        logger.info("PatientWindow #%d Session Starting/Resetting", self._id)
 
     # ---------- DATA / PLOTTING ----------
 
@@ -420,9 +425,12 @@ class PatientWindow(QWidget):
             age_ms = (now_gui - last_ts) * 1000.0
             # print every ~10th tick to avoid spam
             if int(now_gui * 50) % 10 == 0:
-                print(f"PatientWindow #{self._id}- [Monitor: latency] age={age_ms:5.1f} ms, vals={vals}")
-                # ~5–25 ms → fast pipeline
-                # 100–300+ ms → delayed pipeline
+                logger.debug(
+                    "PatientWindow #%d- [Monitor: latency] age=%5.1f ms, vals=%s",
+                    self._id,
+                    age_ms,
+                    vals,
+                )
 
         if isinstance(vals, (int, float)):
             vals = [int(vals)] * NUM_CHANNELS
@@ -538,6 +546,7 @@ class PatientWindow(QWidget):
                     writer.writerow(row)
 
             QMessageBox.information(self, "Saved", f"Session saved to:\n{path}")
+            logger.info("PatientWindow #%d session CSV saved to %s", self._id, path)
             try:
                 log_session_completion(
                     mode="monitor",
@@ -547,8 +556,9 @@ class PatientWindow(QWidget):
                     csv_path=path,
                 )
             except Exception:
-                pass
+                logger.exception("Failed to log session completion for monitor mode")
         except Exception as e:
+            logger.exception("Failed to save CSV to %s", path)
             QMessageBox.critical(self, "Error", f"Failed to save CSV:\n{e}")
 
     # ---------- Patient Window Instance Close ----------
@@ -558,22 +568,28 @@ class PatientWindow(QWidget):
         if self.backend is not None:
             self.handle_disconnect()
 
-        print(f"PatientWindow #{self._id} is closing...")
+        logger.info(
+            "PatientWindow #%d is closing... Remaining = %d",
+            self._id,
+            type(self)._instance_count - 1,
+        )
         type(self)._instance_count -= 1
-        print(f"Remaining PatientWindows = {type(self)._instance_count}")
 
         super().closeEvent(event)
 
 
 def main():
+    configure_logging(LOG_FILE)
+    logger.info("Patient Qt App Launching")
+
     app = QApplication(sys.argv)
     win = PatientWindow()
     win.show()
-    print("Patient Qt App Launched")
+    logger.info("Patient Qt App Launched")
 
-    exit_code = app.exec()  
+    exit_code = app.exec()
 
-    print("Patient Qt App Closed")
+    logger.info("Patient Qt App Closed with exit code %d", exit_code)
     sys.exit(exit_code)
 
 

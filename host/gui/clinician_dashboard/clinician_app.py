@@ -1,21 +1,25 @@
-# host/gui/clinician_app.py #version 9 – numpy stats + CSV thresholds + patient profile
+# host/gui/clinician_dashboard/clinician_app.py 
 
-## Clinician viewer for offline analysis.
-## - Loads CSVs produced by patient_app.py:
-##       time_s, ch0_adc, ..., ch3_adc, tmin_adc, tmax_adc   (thresholds optional)
-## - "Load latest" button finds the newest CSV in data/logs
-## - Plots up to 4 channels over time with toggles
-## - Shows rich stats (min, max, mean, std, percentiles, % in-band) per channel
-## - Reads Min/Max ADC thresholds from CSV when present and syncs the controls
-## - Grid + hover crosshair for detailed inspection
-##
-## NOTE: If CSV has no tmin/tmax columns, thresholds fall back to current spinbox values.
+""" 
+Clinician viewer for offline analysis.
+- Loads CSVs produced by patient_app.py:
+      time_s, ch0_adc, ..., ch3_adc, tmin_adc, tmax_adc   (thresholds optional)
+- "Load latest" button finds the newest CSV in data/logs
+- Plots up to 4 channels over time with toggles
+- Shows rich stats (min, max, mean, std, percentiles, % in-band) per channel
+- Reads Min/Max ADC thresholds from CSV when present and syncs the controls
+- Grid + hover crosshair for detailed inspection
+
+NOTE: If CSV has no tmin/tmax columns, thresholds fall back to current spinbox values.
+"""
 
 import os
 import sys
 import csv
 import statistics
 from glob import glob
+import logging
+import json
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -35,7 +39,6 @@ from PyQt6.QtGui import QFont
 
 import pyqtgraph as pg
 import numpy as np
-import json
 
 # ------------ PATH SETUP ------------
 # This file is .../cardinal-grip/host/gui/clinician_dashboard/clinician_app.py
@@ -47,11 +50,20 @@ PROJECT_ROOT = os.path.dirname(HOST_DIR)              # .../cardinal-grip
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
+from logger.app_logging import configure_logging  # safe after sys.path tweak
+
 NUM_CHANNELS = 4
 CHANNEL_NAMES = ["Digitus Indicis", "Digitus Medius", "Digitus Annularis", "Digitus Minimus"]
 
 # Optional patient profile shown in the header (single local patient for now)
 PATIENT_PROFILE_PATH = os.path.join(PROJECT_ROOT, "data", "patient_profile.json")
+
+# Logging: reuse same log directory + file
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.clinician_viewer")
 
 
 def load_patient_profile() -> dict:
@@ -73,14 +85,16 @@ def load_patient_profile() -> dict:
             data = json.load(f)
             if isinstance(data, dict):
                 return data
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("Failed to load patient profile from %s", PATIENT_PROFILE_PATH)
     return {}
 
 
 class ClinicianWindow(QWidget):
     def __init__(self):
         super().__init__()
+
+        logger.info("ClinicianWindow created")
 
         self.setWindowTitle("Cardinal Grip – Clinician Viewer")
         self.resize(1200, 800)
@@ -362,6 +376,7 @@ class ClinicianWindow(QWidget):
             return
 
         latest_path = max(csv_paths, key=os.path.getmtime)
+        logger.info("Loading latest CSV: %s", latest_path)
         self._load_csv(latest_path)
 
     def _load_csv(self, path: str):
@@ -370,6 +385,7 @@ class ClinicianWindow(QWidget):
             time_s, ch0_adc, ch1_adc, ch2_adc, ch3_adc, [tmin_adc, tmax_adc]
         Threshold columns are optional.
         """
+        logger.info("Attempting to load CSV: %s", path)
         try:
             with open(path, "r", newline="") as f:
                 reader = csv.reader(f)
@@ -437,6 +453,12 @@ class ClinicianWindow(QWidget):
             self.file_label.setText(f"Loaded: {base}")
             self.file_label.setStyleSheet("color: black;")
 
+            logger.info(
+                "Loaded CSV %s with %d samples",
+                base,
+                self.time.size if self.time is not None else 0,
+            )
+
             # If CSV contained thresholds, sync to spinboxes
             if first_tmin is not None and first_tmax is not None:
                 self.min_spin.blockSignals(True)
@@ -456,6 +478,7 @@ class ClinicianWindow(QWidget):
             self.update_stats()
 
         except Exception as e:
+            logger.exception("Failed to load CSV from %s", path)
             QMessageBox.critical(
                 self,
                 "Error",
@@ -528,10 +551,17 @@ class ClinicianWindow(QWidget):
 
 
 def main():
+    configure_logging(LOG_FILE)
+    logger.info("Clinician Viewer Qt App Launching")
+
     app = QApplication(sys.argv)
     win = ClinicianWindow()
     win.show()
-    sys.exit(app.exec())
+    logger.info("Clinician Viewer Qt App Launched")
+
+    exit_code = app.exec()
+    logger.info("Clinician Viewer Qt App Closed with exit code %d", exit_code)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

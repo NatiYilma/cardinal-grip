@@ -1,8 +1,9 @@
-# host/gui/patient_dashboard/patient_dashboard.py  #version 10
+# host/gui/patient_dashboard/patient_dashboard.py 
 
 import os
 import sys
 import json
+import logging
 from datetime import datetime, date
 
 from PyQt6.QtCore import Qt, QDate
@@ -42,6 +43,17 @@ PROFILE_PATH = os.path.join(DATA_DIR, "patient_profile.json")
 SETTINGS_PATH = os.path.join(DATA_DIR, "settings.json")
 SESSIONS_JSON_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 
+# ---------- LOGGING SETUP ----------
+from logger.app_logging import configure_logging
+
+# Logging setup constants (configure_logging is only called in main())
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")  # logs in logger directory
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.patient_dashboard")
+
+
 # Existing windows
 from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
@@ -62,7 +74,8 @@ def _load_sessions():
         if not isinstance(sessions, list):
             return []
         return sessions
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to load sessions from %s", SESSIONS_JSON_PATH)
         return []
 
 
@@ -117,9 +130,13 @@ class DashboardPage(QWidget):
         super().__init__()
         type(self)._instance_count += 1
         self._id = type(self)._instance_count
-        
+
         self.shell = shell_window
-        print(f"PatientDashboardPage #{self._id} created. Total = {type(self)._instance_count}")
+        logger.info(
+            "PatientDashboardPage #%d created. Total = %d",
+            self._id,
+            type(self)._instance_count,
+        )
 
         # Track destruction reliably
         self.destroyed.connect(self._on_destroyed)
@@ -179,11 +196,14 @@ class DashboardPage(QWidget):
     def refresh(self):
         """Called when page is re-shown, to update last session text."""
         self.last_session_label.setText(_latest_session_summary())
-    
+
     def _on_destroyed(self, obj=None):
-        print(f"PatientDashboardPage #{self._id} destroyed")
+        logger.info(
+            "PatientDashboardPage #%d destroyed. Remaining = %d",
+            self._id,
+            type(self)._instance_count - 1,
+        )
         type(self)._instance_count -= 1
-        print(f"Remaining PatientDashboardPages = {type(self)._instance_count}")
 
 
 # =====================================================================
@@ -309,7 +329,8 @@ class ProfilePage(QWidget):
         try:
             with open(PROFILE_PATH, "r") as f:
                 data = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to load profile from %s", PROFILE_PATH)
             return
 
         self._profile = data
@@ -362,9 +383,7 @@ class ProfilePage(QWidget):
             with open(PROFILE_PATH, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            # Fail silently for now; could show a QMessageBox if you want
-            print("Failed to save profile:", e)
-
+            logger.exception("Failed to save profile to %s", PROFILE_PATH)
 
 # =====================================================================
 #  Notifications page
@@ -528,7 +547,8 @@ class SettingsPage(QWidget):
         try:
             with open(SETTINGS_PATH, "r") as f:
                 data = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to load settings from %s", SETTINGS_PATH)
             return
 
         self._settings = data
@@ -571,7 +591,7 @@ class SettingsPage(QWidget):
             with open(SETTINGS_PATH, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print("Failed to save settings:", e)
+            logger.exception("Failed to save settings to %s", SETTINGS_PATH)
 
 
 # =====================================================================
@@ -590,7 +610,11 @@ class PatientShellWindow(QWidget):
         self.setWindowTitle("Cardinal Grip – Patient")
         self.resize(900, 600)
 
-        print(f"PatientShellWindow#{self._id} created. Total = {type(self)._instance_count}")
+        logger.info(
+            "PatientShellWindow #%d created. Total = %d",
+            self._id,
+            type(self)._instance_count,
+        )
 
         # Child window references
         self.game_win = None
@@ -721,7 +745,6 @@ class PatientShellWindow(QWidget):
 
     def open_game(self):
         if self.game_win is None:
-            # self.game_win = PatientGameWindow(self)  # parent = shell
             self.game_win = PatientGameWindow()  # parent = shell
             self.game_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             self.game_win.destroyed.connect(
@@ -733,7 +756,6 @@ class PatientShellWindow(QWidget):
 
     def open_monitor(self):
         if self.patient_win is None:
-            # self.patient_win = PatientWindow(self)  # parent = shell
             self.patient_win = PatientWindow()  # parent = shell
             self.patient_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             self.patient_win.destroyed.connect(
@@ -745,7 +767,6 @@ class PatientShellWindow(QWidget):
 
     def open_dual(self):
         if self.dual_win is None:
-            # self.dual_win = DualPatientGameWindow(self)  # parent = shell
             self.dual_win = DualPatientGameWindow()  # parent = shell
             self.dual_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             self.dual_win.destroyed.connect(
@@ -773,19 +794,22 @@ class PatientShellWindow(QWidget):
     # ----- Shell close: kill everything cleanly -----
 
     def closeEvent(self, event):
-        print("PatientShellWindow closing, closing child windows...")
+        logger.info("PatientShellWindow closing, closing child windows...")
 
         for attr in ("game_win", "patient_win", "dual_win", "calendar_popup"):
             win = getattr(self, attr, None)
             if win is not None:
                 try:
                     win.close()
-                except Exception as e:
-                    print(f"Error closing {attr}: {e}")
+                except Exception:
+                    logger.exception("Error closing %s", attr)
 
-        print(f"PatientShellWindow #{self._id} is closing...")
+        logger.info(
+            "PatientShellWindow #%d is closing... Remaining = %d",
+            self._id,
+            type(self)._instance_count - 1,
+        )
         type(self)._instance_count -= 1
-        print(f"Remaining PatientShellWindows = {type(self)._instance_count}")
 
         super().closeEvent(event)
 
@@ -795,15 +819,20 @@ class PatientShellWindow(QWidget):
 # =====================================================================
 
 def main():
+    # Configure logging for this process (console + file)
+    configure_logging(LOG_FILE)
+    logger.info("Patient Dashboard Qt App Launching")
+
     app = QApplication(sys.argv)
     win = PatientShellWindow()
     win.show()
-    print("Patient Dashboard Qt App Launched")
+    logger.info("Patient Dashboard Qt App Launched")
 
-    exit_code = app.exec()  
+    exit_code = app.exec()
 
-    print("Patient Dashboard Qt App Closed")
+    logger.info("Patient Dashboard Qt App Closed with exit code %d", exit_code)
     sys.exit(exit_code)
+
 
 if __name__ == "__main__":
     main()

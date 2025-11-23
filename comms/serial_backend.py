@@ -1,4 +1,4 @@
-# comms/serial_backend.py  # version 9 with latency + BaseBackend API
+# comms/serial_backend.py 
 
 import threading
 import time

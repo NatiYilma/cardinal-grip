@@ -1,4 +1,4 @@
-# comms/sim_backend.py # version 9 with latency + BaseBackend API
+# comms/sim_backend.py
 
 """
 SimBackend – manual-only backend with ramped squeeze and multi-speed key mapping.

@@ -1,4 +1,4 @@
-# host/gui/patient_dual_launcher.py  #version 10
+# host/gui/patient_dual_launcher.py
 
 """
 Dual view launcher:
@@ -15,6 +15,7 @@ Design:
 import os
 import sys
 import time
+import logging
 from datetime import datetime
 
 from PyQt6.QtCore import Qt
@@ -30,24 +31,32 @@ from PyQt6.QtWidgets import (
     QSlider,
 )
 
+from logger.app_logging import configure_logging
+
 # ------------ PATH SETUP  ------------
 # This file is .../cardinal-grip/host/gui/patient_dashboard/patient_dual_launcher.py
 PATIENT_DASHBOARD_DIR = os.path.dirname(__file__)   # .../host/gui/patient_dashboard
 GUI_DIR = os.path.dirname(PATIENT_DASHBOARD_DIR)    # .../host/gui
-HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)    # .../cardinal-grip
+HOST_DIR = os.path.dirname(GUI_DIR)                 # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)            # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
+
+# Logging setup constants (configure_logging is only called in main())
+LOG_DIR = os.path.join(PROJECT_ROOT, "logger")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
+
+logger = logging.getLogger("cardinal_grip.gui.patient_dual")
 
 # Import the existing GUIs (they already choose backend i.e. SimBackend vs SerialBackend)
 from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
 
 from comms.serial_backend import auto_detect_port
-# Optional: print available ports for debugging
-# print(SerialBackend.list_ports())
 # ================================================================
+
 
 class DualPatientGameWindow(QWidget):
     """
@@ -72,7 +81,11 @@ class DualPatientGameWindow(QWidget):
         self.resize(1200, 750)
         self.setMinimumSize(1100, 700)
 
-        print(f"PatientDualWindow #{self._id} created. Total = {type(self)._instance_count}")
+        logger.info(
+            "PatientDualWindow #%d created. Total = %d",
+            self._id,
+            type(self)._instance_count,
+        )
 
         self.shared_backend = None
         self.current_session_id: str | None = None
@@ -95,26 +108,25 @@ class DualPatientGameWindow(QWidget):
         shared_bar = QHBoxLayout()
 
         shared_bar.addWidget(QLabel("Port:"))
-        self.port_edit = QLineEdit("") #"/dev/cu.usbmodem14101" #"/dev/cu.usbmodem14201" #"/dev/cu.usbserial-0001"
+        self.port_edit = QLineEdit("")
         self.port_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.port_edit.setFixedWidth(220)
         # --- Placeholder to auto-detected port, if any ---
         try:
             detected = auto_detect_port()
-        except Exception:
+        except Exception as e:
+            logger.exception("auto_detect_port failed in dual launcher")
             detected = None
 
         if detected:
-            # This will appear as light/transparent text until user types
             self.port_edit.setPlaceholderText(detected)
         else:
-            # Fallback hint if nothing is detected
             self.port_edit.setPlaceholderText("Auto-detecting port...")
         shared_bar.addWidget(self.port_edit)
 
         shared_bar.addWidget(QLabel("Baud:"))
         self.baud_edit = QLineEdit("115200")
-        self.baud_edit.setPlaceholderText("115200") # Set BAUD rate default 115200
+        self.baud_edit.setPlaceholderText("115200")
         self.baud_edit.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.baud_edit.setFixedWidth(80)
         self.baud_edit.setReadOnly(False)
@@ -192,8 +204,6 @@ class DualPatientGameWindow(QWidget):
         left_layout = QVBoxLayout()
         left_group.setLayout(left_layout)
 
-        # self.game_window = PatientGameWindow()
-        # self.game_window.setParent(self)
         self.game_window = PatientGameWindow(self)
 
         # Hide local connection/session controls: dual view owns them
@@ -206,7 +216,6 @@ class DualPatientGameWindow(QWidget):
         try:
             self.game_window.target_min_slider.hide()
             self.game_window.target_max_slider.hide()
-            # optional numeric labels if present
             if hasattr(self.game_window, "target_min_value_label"):
                 self.game_window.target_min_value_label.hide()
             if hasattr(self.game_window, "target_max_value_label"):
@@ -222,8 +231,6 @@ class DualPatientGameWindow(QWidget):
         right_layout = QVBoxLayout()
         right_group.setLayout(right_layout)
 
-        # self.patient_window = PatientWindow()
-        # self.patient_window.setParent(self)
         self.patient_window = PatientWindow(self)
 
         self.patient_window.connect_button.hide()
@@ -313,7 +320,7 @@ class DualPatientGameWindow(QWidget):
         Let the game window perform its normal connect()
         and then share its backend with the patient monitor.
         """
-        
+
         if self.shared_backend is not None:
             return
 
@@ -327,6 +334,10 @@ class DualPatientGameWindow(QWidget):
         backend = getattr(self.game_window, "backend", None)
         if backend is None:
             self.status_label.setText("Status: Failed to connect (see game view).")
+            logger.warning(
+                "Dual window #%d failed to connect: game_window.backend is None",
+                self._id,
+            )
             return
 
         self.shared_backend = backend
@@ -348,7 +359,7 @@ class DualPatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(True)
         self.start_button.setEnabled(True)
 
-        print(f"PatientDualWindow #{self._id} is Connected")
+        logger.info("PatientDualWindow #%d is Connected", self._id)
 
     def handle_shared_disconnect(self):
         """Stop session and disconnect both child windows."""
@@ -365,8 +376,8 @@ class DualPatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(False)
         self.start_button.setEnabled(False)
 
-        print(f"PatientDualWindow #{self._id} is Disconnected")
-        
+        logger.info("PatientDualWindow #%d is Disconnected", self._id)
+
     # ---------- SESSION CONTROL + OPTIONAL JSON LOGGING ----------
 
     def _make_new_session_id(self) -> str:
@@ -375,6 +386,10 @@ class DualPatientGameWindow(QWidget):
     def handle_start_session(self):
         if self.shared_backend is None:
             self.status_label.setText("Status: Cannot start – not connected.")
+            logger.warning(
+                "PatientDualWindow #%d tried to start session without backend",
+                self._id,
+            )
             return
 
         if hasattr(self.game_window, "start_session"):
@@ -403,7 +418,7 @@ class DualPatientGameWindow(QWidget):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
-        print(f"PatientDualWindow #{self._id} Session Started")
+        logger.info("PatientDualWindow #%d Session Started (id=%s)", self._id, sid)
 
     def handle_stop_session(self):
         if hasattr(self.game_window, "stop_session"):
@@ -418,9 +433,8 @@ class DualPatientGameWindow(QWidget):
         self.start_button.setEnabled(self.shared_backend is not None)
         self.status_label.setText("Status: Session stopped")
         self.session_label.setText("Current session: –")
+        logger.info("PatientDualWindow #%d Session Stopped (id=%s)", self._id, self.current_session_id)
         self.current_session_id = None
-
-        print(f"PatientDualWindow #{self._id} Session Stopped")
 
     # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) START ----------
 
@@ -430,9 +444,9 @@ class DualPatientGameWindow(QWidget):
 
     def keyReleaseEvent(self, event):
         self.game_window.keyReleaseEvent(event)
-    
+
     # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) END ----------
-    
+
     # ---------- Patient Dual Window Instance Close ----------
 
     def closeEvent(self, event):
@@ -440,22 +454,28 @@ class DualPatientGameWindow(QWidget):
         if self.shared_backend is not None:
             self.handle_shared_disconnect()
 
-        print(f"PatientDualWindow #{self._id} is closing...")
+        logger.info(
+            "PatientDualWindow #%d is closing... Remaining = %d",
+            self._id,
+            type(self)._instance_count - 1,
+        )
         type(self)._instance_count -= 1
-        print(f"Remaining PatientDualWindows = {type(self)._instance_count}")
 
         super().closeEvent(event)
 
 
 def main():
+    configure_logging(LOG_FILE)
+    logger.info("Dual Patient Qt App Launching")
+
     app = QApplication(sys.argv)
     win = DualPatientGameWindow()
     win.show()
-    print("Dual Patient Qt App Launched")
+    logger.info("Dual Patient Qt App Launched")
 
-    exit_code = app.exec()  
+    exit_code = app.exec()
 
-    print("Dual Patient Qt App Closed")
+    logger.info("Dual Patient Qt App Closed with exit code %d", exit_code)
     sys.exit(exit_code)
 
 

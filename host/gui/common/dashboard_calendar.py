@@ -1,4 +1,4 @@
-# host/gui/dashboard_calendar.py #version 2
+# host/gui/dashboard_calendar.py 
 
 """
 Dashboard calendar file gets information from /data/sessions_log.json
