@@ -24,28 +24,28 @@ from PyQt6.QtWidgets import (
     QGroupBox,
 )
 
-# ---------- PATH + LOGGING SETUP ----------
-
+# ---------- PATH SETUP ----------
 # This file may live in:
 #   - .../cardinal-grip/host/gui/dashboard_calendar.py
 #   - .../cardinal-grip/host/gui/common/dashboard_calendar.py
-CALENDAR_DIR = os.path.dirname(__file__)  # .../host/gui OR .../host/gui/common
+CALENDAR_DIR = os.path.dirname(__file__)  # .../host/gui or .../host/gui/common
 
-# If we're in .../host/gui/common, GUI_DIR is the parent; otherwise it's CALENDAR_DIR itself
 if os.path.basename(CALENDAR_DIR) == "common":
-    GUI_DIR = os.path.dirname(CALENDAR_DIR)        # .../host/gui
+    GUI_DIR = os.path.dirname(CALENDAR_DIR)      # .../host/gui
 else:
-    GUI_DIR = CALENDAR_DIR                         # .../host/gui
+    GUI_DIR = CALENDAR_DIR                       # .../host/gui
 
-HOST_DIR = os.path.dirname(GUI_DIR)                # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)           # .../cardinal-grip
+HOST_DIR = os.path.dirname(GUI_DIR)             # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)        # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from logger.app_logging import configure_logging  # shared app logging setup
+from logger.app_logging import configure_logging  # shared logging setup
 
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
 SESSIONS_LOG_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 PATIENT_PROFILE_PATH = os.path.join(DATA_DIR, "patient_profile.json")
 
@@ -97,7 +97,7 @@ class AdherenceCalendar(QCalendarWidget):
         try:
             with open(PATIENT_PROFILE_PATH, "r") as f:
                 profile = json.load(f)
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to load patient profile from %s", PATIENT_PROFILE_PATH)
             return None
 

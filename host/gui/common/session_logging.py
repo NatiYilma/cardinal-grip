@@ -1,15 +1,18 @@
-# host/gui/session_logging.py
+# host/gui/common/session_logging.py
 
 import os
 import sys
 import json
 import sqlite3
+import logging
 from datetime import datetime
 
 # ----- PATH SETUP -----
-GUI_DIR = os.path.dirname(__file__)          # .../host/gui
-HOST_DIR = os.path.dirname(GUI_DIR)          # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)     # .../cardinal-grip
+# This file is .../cardinal-grip/host/gui/common/session_logging.py
+COMMON_DIR = os.path.dirname(__file__)        # .../host/gui/common
+GUI_DIR = os.path.dirname(COMMON_DIR)         # .../host/gui
+HOST_DIR = os.path.dirname(GUI_DIR)           # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)      # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
@@ -20,16 +23,28 @@ os.makedirs(DATA_DIR, exist_ok=True)
 SESSIONS_JSON_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 SESSIONS_DB_PATH   = os.path.join(DATA_DIR, "sessions_index.db")
 
+# ----- LOGGER -----
+logger = logging.getLogger("cardinal_grip.sessions")
+
 
 # ---------- JSON LOGGING ----------
 
 def _load_sessions_json():
     if not os.path.isfile(SESSIONS_JSON_PATH):
+        logger.debug("No sessions JSON file at %s", SESSIONS_JSON_PATH)
         return []
     try:
         with open(SESSIONS_JSON_PATH, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            logger.warning(
+                "sessions_log.json is not a list (type=%s); ignoring contents",
+                type(data).__name__,
+            )
+            return []
     except Exception:
+        logger.exception("Failed to load sessions JSON from %s", SESSIONS_JSON_PATH)
         return []
 
 
@@ -37,9 +52,10 @@ def _save_sessions_json(sessions):
     try:
         with open(SESSIONS_JSON_PATH, "w") as f:
             json.dump(sessions, f, indent=2)
+        logger.debug("Wrote %d sessions to %s", len(sessions), SESSIONS_JSON_PATH)
     except Exception:
         # logging failure should not crash the app
-        pass
+        logger.exception("Failed to save sessions JSON to %s", SESSIONS_JSON_PATH)
 
 
 # ---------- SQLITE INDEX ----------
@@ -48,26 +64,30 @@ def _ensure_db():
     """
     Create sessions_index.db and the sessions table if they don't exist.
     """
-    conn = sqlite3.connect(SESSIONS_DB_PATH)
     try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                timestamp TEXT,
-                mode TEXT,
-                source TEXT,
-                fingers_used INTEGER,
-                combo_reps INTEGER,
-                total_reps INTEGER,
-                csv_path TEXT
+        conn = sqlite3.connect(SESSIONS_DB_PATH)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    timestamp TEXT,
+                    mode TEXT,
+                    source TEXT,
+                    fingers_used INTEGER,
+                    combo_reps INTEGER,
+                    total_reps INTEGER,
+                    csv_path TEXT
+                )
+                """
             )
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
+        logger.debug("Ensured sessions_index.db exists at %s", SESSIONS_DB_PATH)
+    except Exception:
+        logger.exception("Failed to initialize sessions_index.db at %s", SESSIONS_DB_PATH)
 
 
 def _insert_into_db(session_dict: dict):
@@ -77,29 +97,41 @@ def _insert_into_db(session_dict: dict):
        id, timestamp, mode, source, fingers_used, combo_reps, total_reps, csv_path
     """
     _ensure_db()
-    conn = sqlite3.connect(SESSIONS_DB_PATH)
     try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO sessions
-            (id, timestamp, mode, source, fingers_used, combo_reps, total_reps, csv_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_dict.get("id"),
-                session_dict.get("timestamp"),
-                session_dict.get("mode"),
-                session_dict.get("source"),
-                int(session_dict.get("fingers_used", 0)),
-                int(session_dict.get("combo_reps", 0)),
-                int(session_dict.get("total_reps", 0)),
-                session_dict.get("csv_path"),
-            ),
+        conn = sqlite3.connect(SESSIONS_DB_PATH)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO sessions
+                (id, timestamp, mode, source, fingers_used, combo_reps, total_reps, csv_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_dict.get("id"),
+                    session_dict.get("timestamp"),
+                    session_dict.get("mode"),
+                    session_dict.get("source"),
+                    int(session_dict.get("fingers_used", 0)),
+                    int(session_dict.get("combo_reps", 0)),
+                    int(session_dict.get("total_reps", 0)),
+                    session_dict.get("csv_path"),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        logger.debug(
+            "Indexed session %s (%s, source=%s) into SQLite",
+            session_dict.get("id"),
+            session_dict.get("mode"),
+            session_dict.get("source"),
         )
-        conn.commit()
-    finally:
-        conn.close()
+    except Exception:
+        logger.exception(
+            "Failed to insert session %s into SQLite index",
+            session_dict.get("id"),
+        )
 
 
 # ---------- PUBLIC API ----------
@@ -119,7 +151,7 @@ def log_session_completion(
 
     mode   – e.g. "game", "monitor", "dual", "clinician"
     source – file name or window name, e.g. "patient_game_app"
-    reps_per_channel – list[int], length up to 4
+    reps_per_channel – list[int | float], length up to 4
     combo_reps – total combo reps from game mode
     csv_path – optional path to the saved CSV (for monitor/clinician)
     """
@@ -154,6 +186,16 @@ def log_session_completion(
         "total_reps": int(total_reps),
         "csv_path": csv_path,
     }
+
+    logger.info(
+        "Logging session %s: mode=%s, source=%s, fingers_used=%d, total_reps=%d, combo_reps=%d",
+        session_id,
+        mode,
+        source,
+        int(fingers_used),
+        int(total_reps),
+        int(combo_reps),
+    )
 
     # --- JSON append ---
     sessions = _load_sessions_json()
