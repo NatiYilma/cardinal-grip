@@ -896,5 +896,53 @@
     "fingers_used": 4,
     "total_reps": 69,
     "csv_path": null
+  },
+  {
+    "id": "game_20251123_015745",
+    "timestamp": "2025-11-23T01:57:54",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      18,
+      17,
+      17,
+      17
+    ],
+    "combo_reps": 12,
+    "fingers_used": 4,
+    "total_reps": 69,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251123_015745",
+    "timestamp": "2025-11-23T01:57:57",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      18,
+      17,
+      17,
+      17
+    ],
+    "combo_reps": 12,
+    "fingers_used": 4,
+    "total_reps": 69,
+    "csv_path": null
+  },
+  {
+    "id": "dual_20251123_015808",
+    "timestamp": "2025-11-23T01:58:17",
+    "mode": "dual",
+    "source": "patient_dual_launcher",
+    "reps_per_channel": [
+      18,
+      17,
+      17,
+      17
+    ],
+    "combo_reps": 12,
+    "fingers_used": 4,
+    "total_reps": 69,
+    "csv_path": null
   }
 ]

@@ -45,7 +45,7 @@ LOG_FILE = os.path.join(LOG_DIR, "cardinal_grip.log")
 
 logger = logging.getLogger("cardinal_grip.gui.patient_monitor")
 
-# This is for JSON DB logging sessions
+# Shared JSON + SQLite session logging (for CSV monitor sessions)
 from host.gui.common.session_logging import log_session_completion
 
 # ========= BACKEND SELECTION (REAL SERIAL VS SIMULATED) =========
@@ -99,7 +99,7 @@ class PatientWindow(QWidget):
         # --- Placeholder to auto-detected port, if any ---
         try:
             detected = auto_detect_port()
-        except Exception as e:
+        except Exception:
             logger.exception("auto_detect_port failed")
             detected = None
 
@@ -548,6 +548,8 @@ class PatientWindow(QWidget):
             QMessageBox.information(self, "Saved", f"Session saved to:\n{path}")
             logger.info("PatientWindow #%d session CSV saved to %s", self._id, path)
             try:
+                # Monitor sessions don't contribute reps to adherence,
+                # so reps_per_channel=None → fingers_used=0 in JSON index.
                 log_session_completion(
                     mode="monitor",
                     source="patient_app",

@@ -108,18 +108,27 @@ class ThresholdProgressBar(QProgressBar):
 class PatientGameWindow(QWidget):
     _instance_count = 0
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, log_to_json: bool = True):
+        """
+        log_to_json:
+            - True  → stop_session() writes to sessions_log.json / SQLite
+            - False → stop_session() skips JSON logging (used by dual launcher,
+                      which will log a single combined "dual" session instead).
+        """
         super().__init__(parent)
 
         type(self)._instance_count += 1
         self._id = type(self)._instance_count
 
+        self.log_to_json = log_to_json
+
         self.setWindowTitle("Cardinal Grip – Patient Game Mode")
         self.resize(1100, 700)
 
         logger.info(
-            "PatientGameWindow #%d created. Total = %d",
+            "PatientGameWindow #%d created (log_to_json=%s). Total = %d",
             self._id,
+            self.log_to_json,
             type(self)._instance_count,
         )
 
@@ -139,7 +148,7 @@ class PatientGameWindow(QWidget):
         self.session_start_time: float | None = None
         self.current_session_id: str | None = None
 
-        # Persistent stats
+        # Persistent stats (cumulative, for patient_stats.json)
         self.reps_per_channel = [0] * NUM_CHANNELS
         self.sessions_completed = 0
         self.stats_path = os.path.join(PROJECT_ROOT, "data", "patient_stats.json")
@@ -405,7 +414,7 @@ class PatientGameWindow(QWidget):
                 self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = int(data.get("sessions_completed", 0))
             self.combo_reps = int(data.get("combo_reps", 0))
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to load game stats from %s", self.stats_path)
             self.reps_per_channel = [0] * NUM_CHANNELS
             self.sessions_completed = 0
@@ -499,6 +508,7 @@ class PatientGameWindow(QWidget):
         self.disconnect_button.setEnabled(True)
         self.start_button.setEnabled(True)
 
+        # Auto-start a session on connect (you can comment this out if you want manual start)
         self.start_session()
         self.start_time = time.time()
         self.timer.start()
@@ -533,7 +543,10 @@ class PatientGameWindow(QWidget):
         self.emoji_label.setText("")
 
         self.session_start_time = time.time()
-        self.current_session_id = datetime.now().strftime("game_%Y%m%d_%H%M%S")
+        # If an external controller (dual view) wants to set a specific id,
+        # it can assign self.current_session_id before calling start_session().
+        if self.current_session_id is None:
+            self.current_session_id = datetime.now().strftime("game_%Y%m%d_%H%M%S")
 
         self.timer.start()
         self.start_button.setEnabled(False)
@@ -544,7 +557,11 @@ class PatientGameWindow(QWidget):
 
         self.setFocus()
 
-        logger.info("PatientGameWindow #%d Session Started", self._id)
+        logger.info(
+            "PatientGameWindow #%d Session Started (id=%s)",
+            self._id,
+            self.current_session_id,
+        )
 
     def stop_session(self):
         if self.timer.isActive():
@@ -552,20 +569,26 @@ class PatientGameWindow(QWidget):
             self.sessions_completed += 1
             self._save_stats()
 
-            logger.info("PatientGameWindow #%d Session Stopped", self._id)
+            logger.info(
+                "PatientGameWindow #%d Session Stopped (id=%s)",
+                self._id,
+                self.current_session_id,
+            )
 
-            try:
-                log_session_completion(
-                    mode="game",
-                    source="patient_game_app",
-                    reps_per_channel=self.reps_per_channel,
-                    combo_reps=self.combo_reps,
-                    csv_path=None,
-                    timestamp=datetime.now(),
-                    session_id=self.current_session_id,
-                )
-            except Exception:
-                logger.exception("Warning: failed to log game session")
+            # Only log directly to JSON/SQLite if enabled.
+            if self.log_to_json:
+                try:
+                    log_session_completion(
+                        mode="game",
+                        source="patient_game_app",
+                        reps_per_channel=self.reps_per_channel,
+                        combo_reps=self.combo_reps,
+                        csv_path=None,
+                        timestamp=datetime.now(),
+                        session_id=self.current_session_id,
+                    )
+                except Exception:
+                    logger.exception("Warning: failed to log game session")
 
             self.session_count_label.setText(
                 f"Sessions completed (game mode): {self.sessions_completed}"
@@ -578,6 +601,9 @@ class PatientGameWindow(QWidget):
         self.combo_bar.setValue(0)
         self.combo_countdown_label.setText("All-fingers hold: –")
         self.last_all_in_band = False
+
+        # Leave self.current_session_id as-is; dual launcher may inspect it.
+        # Standalone game mode will overwrite on next start_session().
 
     # -------- Game loop --------
 

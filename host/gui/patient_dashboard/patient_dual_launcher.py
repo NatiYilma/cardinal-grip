@@ -10,6 +10,11 @@ Design:
   * Dual view reuses that backend for PatientWindow (monitor).
   * ONE shared Min/Max ADC slider pair lives in the dual view and
     drives both child windows' thresholds + visuals.
+  * Session logging:
+      - PatientGameWindow is constructed with log_to_json=False so it does NOT
+        log a "game" session row on stop.
+      - DualPatientGameWindow logs a single combined "dual" session row into
+        sessions_log.json / sessions_index.db using the shared session_id.
 """
 
 import os
@@ -55,6 +60,9 @@ from host.gui.patient_dashboard.patient_game_app import PatientGameWindow
 from host.gui.patient_dashboard.patient_app import PatientWindow
 
 from comms.serial_backend import auto_detect_port
+
+# Shared JSON+SQLite session logging for the dual view
+from host.gui.common.session_logging import log_session_completion
 # ================================================================
 
 
@@ -68,6 +76,7 @@ class DualPatientGameWindow(QWidget):
       * drives global connect / disconnect / start / stop
       * exposes one shared Min/Max ADC slider pair
       * pushes thresholds into both child windows.
+      * logs a single combined "dual" session row on stop.
     """
     _instance_count = 0
 
@@ -114,7 +123,7 @@ class DualPatientGameWindow(QWidget):
         # --- Placeholder to auto-detected port, if any ---
         try:
             detected = auto_detect_port()
-        except Exception as e:
+        except Exception:
             logger.exception("auto_detect_port failed in dual launcher")
             detected = None
 
@@ -204,7 +213,8 @@ class DualPatientGameWindow(QWidget):
         left_layout = QVBoxLayout()
         left_group.setLayout(left_layout)
 
-        self.game_window = PatientGameWindow(self)
+        # Construct game window with log_to_json=False so dual window controls logging
+        self.game_window = PatientGameWindow(self, log_to_json=False)
 
         # Hide local connection/session controls: dual view owns them
         self.game_window.connect_button.hide()
@@ -378,10 +388,10 @@ class DualPatientGameWindow(QWidget):
 
         logger.info("PatientDualWindow #%d is Disconnected", self._id)
 
-    # ---------- SESSION CONTROL + OPTIONAL JSON LOGGING ----------
+    # ---------- SESSION CONTROL + JSON LOGGING ----------
 
     def _make_new_session_id(self) -> str:
-        return datetime.now().strftime("session_%Y%m%d_%H%M%S")
+        return datetime.now().strftime("dual_%Y%m%d_%H%M%S")
 
     def handle_start_session(self):
         if self.shared_backend is None:
@@ -392,25 +402,20 @@ class DualPatientGameWindow(QWidget):
             )
             return
 
+        # Shared session id for dual view
+        sid = self._make_new_session_id()
+        self.current_session_id = sid
+
+        # Push id into game window so its internal state knows about it
+        self.game_window.current_session_id = sid
+
         if hasattr(self.game_window, "start_session"):
             self.game_window.start_session()
 
         if hasattr(self.patient_window, "reset_session"):
             self.patient_window.reset_session()
 
-        sid = self._make_new_session_id()
-        self.current_session_id = sid
         self.session_label.setText(f"Current session: {sid}")
-
-        if hasattr(self.game_window, "set_external_session_id"):
-            self.game_window.set_external_session_id(sid)
-        if hasattr(self.patient_window, "set_external_session_id"):
-            self.patient_window.set_external_session_id(sid)
-
-        if hasattr(self.game_window, "begin_session_logging"):
-            self.game_window.begin_session_logging(sid, source="dual_view")
-        if hasattr(self.patient_window, "begin_session_logging"):
-            self.patient_window.begin_session_logging(sid, source="dual_view")
 
         self.status_label.setText(
             "Status: Session running (shared backend; shared target zone)."
@@ -421,19 +426,63 @@ class DualPatientGameWindow(QWidget):
         logger.info("PatientDualWindow #%d Session Started (id=%s)", self._id, sid)
 
     def handle_stop_session(self):
+        """
+        Stop both views and log a single combined dual session row if we have data.
+        """
+        sid = self.current_session_id
+
+        # Stop game window (this will NOT log JSON because log_to_json=False)
         if hasattr(self.game_window, "stop_session"):
             self.game_window.stop_session()
 
-        if hasattr(self.patient_window, "end_session_logging"):
-            self.patient_window.end_session_logging()
-        if hasattr(self.game_window, "end_session_logging"):
-            self.game_window.end_session_logging()
+        # Stop patient monitor timer (if it's still running)
+        if hasattr(self.patient_window, "timer") and self.patient_window.timer.isActive():
+            self.patient_window.timer.stop()
+
+        # Log a combined session if we have an id and game stats
+        try:
+            # Use the game's cumulative reps_per_channel and combo_reps
+            reps = getattr(self.game_window, "reps_per_channel", None)
+            combo_reps = getattr(self.game_window, "combo_reps", 0)
+
+            # If no session id (e.g., someone hit stop without start), fabricate one
+            if sid is None:
+                sid = self._make_new_session_id()
+
+            # Only log if we actually have reps list
+            log_session_completion(
+                mode="dual",
+                source="patient_dual_launcher",
+                reps_per_channel=reps,
+                combo_reps=combo_reps,
+                csv_path=None,
+                timestamp=datetime.now(),
+                session_id=sid,
+            )
+            logger.info(
+                "PatientDualWindow #%d logged dual session (id=%s, reps=%s, combo=%s)",
+                self._id,
+                sid,
+                reps,
+                combo_reps,
+            )
+        except Exception:
+            logger.exception(
+                "PatientDualWindow #%d failed to log dual session (id=%s)",
+                self._id,
+                sid,
+            )
 
         self.stop_button.setEnabled(False)
         self.start_button.setEnabled(self.shared_backend is not None)
         self.status_label.setText("Status: Session stopped")
         self.session_label.setText("Current session: –")
-        logger.info("PatientDualWindow #%d Session Stopped (id=%s)", self._id, self.current_session_id)
+
+        logger.info(
+            "PatientDualWindow #%d Session Stopped (id=%s)",
+            self._id,
+            self.current_session_id,
+        )
         self.current_session_id = None
 
     # ---------- KEYBOARD EVENTS (FOR SIM BACKEND) START ----------
