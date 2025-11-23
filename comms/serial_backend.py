@@ -182,13 +182,37 @@ class SerialBackend(BaseBackend):
         logger.info("SerialBackend stopped for port %s", self.port)
 
     def close(self) -> None:
-        """Close the serial port, if open."""
-        if self.ser is not None:
-            try:
-                logger.debug("Closing serial port %s", self.port)
-                self.ser.close()
-            except Exception:
+        """
+        Close the serial port, if open.
+
+        Idempotent and safe to call multiple times (from thread + GUI).
+        """
+        # Already cleaned up or never opened
+        if self.ser is None:
+            logger.debug("SerialBackend.close() called, but ser is already None")
+            return
+
+        # If pyserial thinks it's already closed, just mark None and return
+        if hasattr(self.ser, "is_open") and not self.ser.is_open:
+            logger.debug("Serial port %s already closed at pyserial level", self.port)
+            self.ser = None
+            return
+
+        try:
+            logger.debug("Closing serial port %s", self.port)
+            self.ser.close()
+        except OSError as e:
+            # Errno 9 = bad file descriptor => already closed by someone else
+            if getattr(e, "errno", None) == 9:
+                logger.debug(
+                    "Serial port %s already closed (bad file descriptor), ignoring.",
+                    self.port,
+                )
+            else:
                 logger.exception("Error while closing serial port %s", self.port)
+        except Exception:
+            logger.exception("Error while closing serial port %s", self.port)
+        finally:
             self.ser = None
 
     # ---------- background loop ----------
@@ -264,6 +288,7 @@ class SerialBackend(BaseBackend):
                     self._history.append((ts, list(vals)))
 
         logger.debug("SerialBackend read loop exiting for port %s", self.port)
+        # Safe even if stop() already closed it; close() is idempotent now
         self.close()
 
     # ---------- public API ----------

@@ -484,9 +484,9 @@ class PatientGameWindow(InstanceTrackerMixin, QWidget):
             port_arg = port_text
 
         try:
-            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1) #NOTE: testing 1 fsr
+            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=1) #NOTE: testing 1 fsr
             # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01, num_channels=4) #NOTE: testing 4 fsrs
-            self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01) #NOTE: UNCOMMENT for real application
+            # self.backend = SerialBackend(port=port_arg, baud=baud, timeout=0.01) #NOTE: UNCOMMENT for real application
             self.backend.start()
         except Exception as e:
             logger.exception("Failed to open serial port %s", port_arg or "(auto-detect)")

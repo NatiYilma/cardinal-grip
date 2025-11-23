@@ -1136,5 +1136,69 @@
     "fingers_used": 4,
     "total_reps": 73,
     "csv_path": null
+  },
+  {
+    "id": "game_20251123_044114",
+    "timestamp": "2025-11-23T04:41:23",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251123_044114",
+    "timestamp": "2025-11-23T04:41:39",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251123_044114",
+    "timestamp": "2025-11-23T04:41:50",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251123_044114",
+    "timestamp": "2025-11-23T04:41:56",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
   }
 ]
