@@ -24,28 +24,19 @@ from PyQt6.QtWidgets import (
     QGroupBox,
 )
 
-# ---------- PATH SETUP ----------
-# This file may live in:
-#   - .../cardinal-grip/host/gui/dashboard_calendar.py
-#   - .../cardinal-grip/host/gui/common/dashboard_calendar.py
-CALENDAR_DIR = os.path.dirname(__file__)  # .../host/gui or .../host/gui/common
+# ---------- PATH + LOGGING SETUP ----------
 
-if os.path.basename(CALENDAR_DIR) == "common":
-    GUI_DIR = os.path.dirname(CALENDAR_DIR)      # .../host/gui
-else:
-    GUI_DIR = CALENDAR_DIR                       # .../host/gui
-
-HOST_DIR = os.path.dirname(GUI_DIR)             # .../host
-PROJECT_ROOT = os.path.dirname(HOST_DIR)        # .../cardinal-grip
+CALENDAR_DIR = os.path.dirname(__file__)        # .../host/gui/common
+GUI_DIR = os.path.dirname(CALENDAR_DIR)         # .../host/gui
+HOST_DIR = os.path.dirname(GUI_DIR)            # .../host
+PROJECT_ROOT = os.path.dirname(HOST_DIR)       # .../cardinal-grip
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from logger.app_logging import configure_logging  # shared logging setup
+from logger.app_logging import configure_logging  # shared app logging setup
 
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-
 SESSIONS_LOG_PATH = os.path.join(DATA_DIR, "sessions_log.json")
 PATIENT_PROFILE_PATH = os.path.join(DATA_DIR, "patient_profile.json")
 
@@ -79,7 +70,7 @@ class AdherenceCalendar(QCalendarWidget):
         # Map: date -> {"fingers_used": int, "has_combo": bool}
         self.day_summary = self._load_day_summary()
 
-        # Make weekday headers (Sun..Sat) all white text instead of red weekends
+        # Make weekday headers (Sun..Sat) all white instead of red weekends
         self._configure_weekday_formats()
 
         self._apply_colors()
@@ -211,22 +202,17 @@ class AdherenceCalendar(QCalendarWidget):
         fmt.setFontWeight(QFont.Weight.Bold)
 
         if status == "pre_start":
-            # Before rehab start date
             fmt.setBackground(QBrush(QColor("#424242")))  # dark gray
         elif status == "start_date":
-            # Rehab start date itself (brown tile)
-            fmt.setBackground(QBrush(QColor("#6D4C41")))
+            fmt.setBackground(QBrush(QColor("#6D4C41")))  # brown
         elif status == "upcoming":
-            # Future from "today"
             fmt.setBackground(QBrush(QColor("#BDBDBD")))  # light gray
         elif status == "today":
-            # Current day – translucent bright blue
             c = QColor(0, 0, 255, 127)
-            c.setAlpha(250)  # bright transparent
+            c.setAlpha(250)  # bright transparent blue
             fmt.setBackground(QBrush(c))
         elif status == "missed":
-            # Solid bright red for missed
-            fmt.setBackground(QBrush(QColor("#F44336")))
+            fmt.setBackground(QBrush(QColor("#F44336")))  # red
         elif status == "level_1":
             fmt.setBackground(QBrush(QColor("#FFEB3B")))  # yellow
         elif status == "level_2":
@@ -262,7 +248,6 @@ class AdherenceCalendar(QCalendarWidget):
         day_info = self.day_summary.get(d)
 
         if day_info is None or day_info["fingers_used"] == 0:
-            # past day, no session
             return "missed"
 
         fingers = day_info["fingers_used"]
@@ -275,7 +260,6 @@ class AdherenceCalendar(QCalendarWidget):
         elif fingers == 3:
             return "level_3"
         else:
-            # 4 fingers used
             return "level_4_combo" if has_combo else "level_4"
 
     def _apply_colors(self):
@@ -361,7 +345,6 @@ class DashboardWindow(QWidget):
             w.setLayout(box)
             return w
 
-        # Replace "Pre-start period" with explicit brown start date in legend
         legend_layout.addWidget(legend_item("Start date", "start_date"))
         legend_layout.addWidget(legend_item("Upcoming", "upcoming"))
         legend_layout.addWidget(legend_item("Missed", "missed"))

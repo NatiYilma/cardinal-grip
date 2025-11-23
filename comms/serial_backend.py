@@ -1,7 +1,8 @@
-# comms/serial_backend.py 
+# comms/serial_backend.py
 
 import threading
 import time
+import logging
 from collections import deque
 from typing import List, Tuple, Deque, Optional
 
@@ -10,10 +11,10 @@ import serial.tools.list_ports
 
 from .base_backend import BaseBackend
 
+logger = logging.getLogger("cardinal_grip.comms.serial")
+
 # ================================================================
 
-
-# ================ Auto Detect Port ==========================================
 def auto_detect_port() -> Optional[str]:
     """
     Try to automatically find a USB serial port that looks like an ESP32 / Feather.
@@ -21,7 +22,7 @@ def auto_detect_port() -> Optional[str]:
     On macOS, these are typically:
       - /dev/cu.usbmodemXXXX
       - /dev/cu.usbserial-XXXX
-    
+
     On Terminal (bash/zsh): "ls /dev/cu.*" to find list of ports
 
     Example 1 --port /dev/cu.usbserial-0001
@@ -32,13 +33,15 @@ def auto_detect_port() -> Optional[str]:
 
     Returns the device path as a string, or None if nothing suitable is found.
     """
-    ports = serial.tools.list_ports.comports()
-    candidates: list[str] = []
+    ports = list(serial.tools.list_ports.comports())
+    if not ports:
+        logger.info("No serial ports detected by pyserial.")
+    else:
+        logger.debug("Available serial ports:")
+        for p in ports:
+            logger.debug("  %s  –  %s", p.device, p.description)
 
-    # Debug print (list of ports):
-    print("Available serial ports:")
-    for p in ports:
-        print(f"  {p.device}  –  {p.description}")
+    candidates: list[str] = []
 
     for p in ports:
         dev = p.device or ""
@@ -53,11 +56,14 @@ def auto_detect_port() -> Optional[str]:
             candidates.append(dev)
 
     if not candidates:
+        logger.warning("No candidate ESP32/Feather serial ports found.")
         return None
 
     # Prefer usbmodem over usbserial if both exist
     candidates.sort(key=lambda d: (not d.startswith("/dev/cu.usbmodem"), d))
-    return candidates[0]
+    chosen = candidates[0]
+    logger.info("Auto-detected serial port: %s", chosen)
+    return chosen
 
 # ================================================================
 
@@ -76,12 +82,6 @@ class SerialBackend(BaseBackend):
       are treated as channels.
     - Stores the most recent list of ints.
     - GUI can call get_latest() at any time without blocking.
-
-    Channel order matches firmware CSV:
-        [0] -> A0  (red)
-        [1] -> A1  (green)
-        [2] -> A2  (blue)
-        [3] -> A3  (yellow)
     """
 
     def __init__(
@@ -118,6 +118,15 @@ class SerialBackend(BaseBackend):
         # Separate lock for writes (send_command)
         self._write_lock = threading.Lock()
 
+        logger.debug(
+            "SerialBackend initialized (port=%r, baud=%d, timeout=%.3f, num_channels=%d, history_size=%d)",
+            self.port,
+            self.baud,
+            self.timeout,
+            self.num_channels,
+            history_size,
+        )
+
     # ---------- lifecycle ----------
 
     def open(self) -> None:
@@ -126,16 +135,19 @@ class SerialBackend(BaseBackend):
 
         If self.port is None or empty, auto-detect a suitable port.
         """
-        # Auto-detect if port not specified
         if not self.port:
             detected = auto_detect_port()
             if detected is None:
+                logger.error(
+                    "SerialBackend.open() failed: no suitable serial port found."
+                )
                 raise RuntimeError(
                     "No suitable serial ports found. "
                     "Plug in your board and try again."
                 )
             self.port = detected
 
+        logger.info("Opening serial port %s @ %d", self.port, self.baud)
         self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
 
     def start(self) -> None:
@@ -145,6 +157,7 @@ class SerialBackend(BaseBackend):
         If the port is not open yet, open it first.
         """
         if self._thread is not None and self._thread.is_alive():
+            logger.debug("SerialBackend.start() called, but thread already running.")
             return
 
         if self.ser is None:
@@ -153,6 +166,7 @@ class SerialBackend(BaseBackend):
         self._running = True
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
+        logger.info("SerialBackend reader thread started for port %s", self.port)
 
     def stop(self) -> None:
         """Stop the reader thread and close the port."""
@@ -161,18 +175,20 @@ class SerialBackend(BaseBackend):
             try:
                 self._thread.join(timeout=0.5)
             except Exception:
-                pass
+                logger.exception("Error while joining SerialBackend thread.")
             self._thread = None
 
         self.close()
+        logger.info("SerialBackend stopped for port %s", self.port)
 
     def close(self) -> None:
         """Close the serial port, if open."""
         if self.ser is not None:
             try:
+                logger.debug("Closing serial port %s", self.port)
                 self.ser.close()
             except Exception:
-                pass
+                logger.exception("Error while closing serial port %s", self.port)
             self.ser = None
 
     # ---------- background loop ----------
@@ -184,41 +200,57 @@ class SerialBackend(BaseBackend):
         Runs in a background thread and will attempt to reconnect if the
         device disappears.
         """
+        logger.debug("SerialBackend read loop entering for port %s", self.port)
         while self._running:
             # Ensure port is open
             if self.ser is None or not self.ser.is_open:
                 try:
                     self.open()
                 except Exception:
-                    # Wait before retrying, to avoid a tight loop if unplugged
+                    logger.warning(
+                        "Failed to open serial port %s, retrying in %.1fs",
+                        self.port or "(auto)",
+                        self.reconnect_backoff,
+                    )
                     time.sleep(self.reconnect_backoff)
                     continue
 
             try:
                 raw = self.ser.readline()
-            except Exception:
-                # IO error: close and retry later
+            except Exception as e:
+                logger.warning(
+                    "Serial read error on %s: %s; closing and retrying.",
+                    self.port,
+                    e,
+                )
                 self.close()
                 time.sleep(self.reconnect_backoff)
                 continue
 
             line = raw.decode(errors="ignore").strip()
             if not line:
-                # no data this tick; yield a bit
                 time.sleep(0.001)
                 continue
 
             parts = [p.strip() for p in line.split(",") if p.strip()]
             if len(parts) < self.num_channels:
-                # malformed / short line; ignore
+                # malformed / short line; ignore quietly at runtime but keep at debug if needed
+                logger.debug(
+                    "Ignoring short/malformed line on %s: %r",
+                    self.port,
+                    line,
+                )
                 continue
 
-            # Take the last N fields as channel values, so metadata prefixes are OK
             chan_fields = parts[-self.num_channels :]
             try:
                 vals = [int(float(p)) for p in chan_fields]
             except ValueError:
-                # ignore non-numeric noise
+                logger.debug(
+                    "Ignoring non-numeric serial line on %s: %r",
+                    self.port,
+                    line,
+                )
                 continue
 
             # Clamp to 0..4095 range
@@ -231,7 +263,7 @@ class SerialBackend(BaseBackend):
                 if self._history is not None:
                     self._history.append((ts, list(vals)))
 
-        # cleanup if loop exits
+        logger.debug("SerialBackend read loop exiting for port %s", self.port)
         self.close()
 
     # ---------- public API ----------
@@ -243,7 +275,8 @@ class SerialBackend(BaseBackend):
         Non-blocking and safe to call from GUI thread.
         """
         with self._lock:
-            return list(self._latest)
+            latest = list(self._latest)
+        return latest
 
     def get_last_timestamp(self) -> Optional[float]:
         """
@@ -265,7 +298,6 @@ class SerialBackend(BaseBackend):
 
         with self._lock:
             if self._history is None or not self._history:
-                # No history: just repeat current sample n times
                 return [list(self._latest) for _ in range(n)]
 
             items = list(self._history)[-n:]
@@ -280,7 +312,11 @@ class SerialBackend(BaseBackend):
         if not cmd:
             return
         if self.ser is None or not self.ser.is_open:
-            # Silently ignore if not connected
+            logger.debug(
+                "send_command(%r) ignored: serial port %s is not open.",
+                cmd,
+                self.port,
+            )
             return
 
         if not cmd.endswith("\n"):
@@ -291,9 +327,9 @@ class SerialBackend(BaseBackend):
             with self._write_lock:
                 self.ser.write(data)
                 self.ser.flush()
+            logger.debug("Sent command to %s: %r", self.port, cmd.strip())
         except Exception:
-            # Don't propagate IO errors into GUI
-            pass
+            logger.exception("Error while sending command %r to %s", cmd, self.port)
 
     def handle_char(self, ch: str, is_press: bool) -> None:
         """
@@ -312,4 +348,5 @@ class SerialBackend(BaseBackend):
         out: list[tuple[str, str]] = []
         for p in serial.tools.list_ports.comports():
             out.append((p.device, p.description))
+        logger.debug("list_ports() -> %r", out)
         return out
