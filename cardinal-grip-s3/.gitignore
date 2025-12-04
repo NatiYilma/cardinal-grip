@@ -1,0 +1,3 @@
+.pio
+**/credentials.h
+src/firmware/credentials.h

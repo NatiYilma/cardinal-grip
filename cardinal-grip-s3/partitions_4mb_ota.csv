@@ -1,0 +1,60 @@
+# partitions_4mb_ota.csv
+#
+# =======================================================================================
+# --------------------------------------------------------------------------------------
+# Cardinal Grip – 4MB dual-OTA partition layout
+#
+# This file is parsed by the ESP32 partition tool (ESP-IDF/Arduino/PlatformIO).
+# Only full lines starting with '#' are treated as comments and ignored.
+# Do NOT put comments after data on the same line (e.g. "...,0x10000,  # comment"),
+# as that will break parsing. Keep comments on their own lines only.
+#
+# Column order (no header row is required, but this is the implicit schema):
+#   name, type, subtype, offset, size, flags
+#
+# name    : Logical partition name used in code (e.g. "nvs", "app0", "spiffs").
+# type    : Partition type:
+#             - "app"      – executable firmware image slots.
+#             - "data"     – non-code data (NVS, SPIFFS, etc.).
+# subtype : More specific kind within the type:
+#             - "nvs"      – key/value non-volatile storage.
+#             - "ota"      – OTA metadata (otadata).
+#             - "ota_0/1"  – OTA firmware slots (app0/app1).
+#             - "spiffs"   – SPI flash filesystem region.
+# offset  : Start address in flash (hex, typically 0x10000-aligned).
+# size    : Size of the partition (hex, e.g. 0x180000 ≈ 1.5 MB).
+# flags   : Usually left empty; reserved for special attributes.
+#
+# Notes:
+# - nvs     is small (e.g. 20 KB) and used for config/credentials.
+# - otadata holds OTA selection/rollback metadata.
+# - app0/1  are your actual firmware images (OTA slots).
+# - spiffs  is an optional filesystem region for files, logs, etc.
+#
+# Below are the actual partition entries:
+# Name,   Type, SubType, Offset,   Size,     Flags
+#
+# --------------------------------------------------------------------------------------
+# This partition table shows:
+#
+# nvs: 0x5000 bytes = 20,480 B = 20 KB
+# otadata: 0x2000 bytes = 8,192 B = 8 KB
+# app0: 0x1C0000 bytes = 1,835,008 B ≈ 1.75 MB
+# app1: 0x1C0000 bytes = 1,835,008 B ≈ 1.75 MB
+# spiffs: 0x070000 bytes = 458,752 B = 448 KB
+#
+# Total flash on a 4 MB ESP32 board = 4 * 1024 * 1024 = 4,194,304 bytes
+# Partition sum: 20,480 + 8,192 + 1,835,008 + 1,835,008 + 458,752 = 4,157,440 bytes total
+# Ratio: 4,157,440 / 4,194,304 ≈ 0.9912 → ~99.1%
+# Your partition table is using ~99.1% of the 4 MB address space for these named regions.
+# The remaining ~0.9% (~36 KB) is where the bootloader + partition table live 
+# --------------------------------------------------------------------------------------
+# =======================================================================================
+# partitions_4mb_ota.csv
+
+# Name,   Type, SubType, Offset,   Size,      Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1C0000,
+app1,     app,  ota_1,   0x1D0000, 0x1C0000,
+spiffs,   data, spiffs,  0x390000, 0x070000,
