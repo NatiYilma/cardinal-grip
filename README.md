@@ -1,9 +1,15 @@
+# Cardinal Grip
+
+Cardinal Grip is a force-sensing glove system designed for finger individuation, motor control training, and stroke-oriented rehabilitation.
+
+The project is split into:
+
+- A **desktop application (UI/UX)** for visualization, calibration, and interaction.
+- An **embedded backend (ESP32-S3)** for sensor acquisition and communication over Bluetooth, Wi-Fi, or Serial.
+
+---
+
 ## Repository Structure
-
-This repo has two main components:
-
-- **Desktop app (UI/UX)** – primary application code (Python / Qt, etc.)
-- **Embedded backend (ESP32-S3)** – firmware and communication pipeline in `cardinal-grip-s3/`
 
 ```text
 cardinal-grip/
