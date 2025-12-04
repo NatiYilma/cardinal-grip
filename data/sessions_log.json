@@ -1200,5 +1200,85 @@
     "fingers_used": 4,
     "total_reps": 73,
     "csv_path": null
+  },
+  {
+    "id": "game_20251126_232519",
+    "timestamp": "2025-11-26T23:25:39",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251126_232543",
+    "timestamp": "2025-11-26T23:26:27",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251126_232543",
+    "timestamp": "2025-11-26T23:26:58",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "dual_20251126_233757",
+    "timestamp": "2025-11-26T23:37:57",
+    "mode": "dual",
+    "source": "patient_dual_launcher",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
+  },
+  {
+    "id": "game_20251203_160132",
+    "timestamp": "2025-12-03T16:01:47",
+    "mode": "game",
+    "source": "patient_game_app",
+    "reps_per_channel": [
+      19,
+      18,
+      18,
+      18
+    ],
+    "combo_reps": 13,
+    "fingers_used": 4,
+    "total_reps": 73,
+    "csv_path": null
   }
 ]
